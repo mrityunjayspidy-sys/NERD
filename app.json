@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Nerd",
+    "slug": "nerd",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nerd.app",
+      "infoPlist": {
+        "NSRemindersUsageDescription": "Nerd needs access to reminders to sync and alert you of upcoming tasks.",
+        "NSCalendarsUsageDescription": "Nerd needs access to your calendar to sync your schedule directly."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.nerd.app",
+      "permissions": [
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Nerd needs access to your calendar to display and sync tasks."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#808080"
+        }
+      ]
+    ]
+  }
+}

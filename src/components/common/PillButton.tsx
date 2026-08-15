@@ -8,7 +8,7 @@ import { Platform } from 'react-native';
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface PillButtonProps {
-  label?: string;
+  label?: React.ReactNode;
   icon?: React.ReactNode;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'accent' | 'ghost' | 'danger';
@@ -112,20 +112,23 @@ export const PillButton: React.FC<PillButtonProps> = ({
     >
       <View style={styles.contentRow}>
         {icon && <View style={[styles.iconWrap, label ? { marginRight: 8 } : null]}>{icon}</View>}
-        {label && (
-          <Text
-            style={[
-              styles.label,
-              {
-                color: getTextColor(),
-                fontSize: currentSize.fontSize,
-              },
-              textStyle,
-            ]}
-          >
-            {label}
-          </Text>
-        )}
+        {label &&
+          (typeof label === 'string' ? (
+            <Text
+              style={[
+                styles.label,
+                {
+                  color: getTextColor(),
+                  fontSize: currentSize.fontSize,
+                },
+                textStyle,
+              ]}
+            >
+              {label}
+            </Text>
+          ) : (
+            label
+          ))}
       </View>
     </AnimatedPressable>
   );

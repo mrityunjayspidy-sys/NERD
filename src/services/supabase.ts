@@ -2,14 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const FALLBACK_URL = 'https://xokqlvvqmqybwbwopqmy.supabase.co';
+const FALLBACK_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhva3FsdnZxbXF5Yndid29wcW15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3ODM4NjYsImV4cCI6MjEwMjM1OTg2Nn0.mh8raVxS_C6JbYmgxhOMHa6q4dO7DAyk8WlYwLcsOEk';
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error(
-    'Missing Supabase credentials. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file.'
-  );
-}
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || FALLBACK_URL;
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || FALLBACK_ANON_KEY;
 
 // Safe storage adapter for React Native and Web
 const customStorageAdapter = {

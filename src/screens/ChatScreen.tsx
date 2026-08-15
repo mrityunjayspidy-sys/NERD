@@ -11,46 +11,65 @@ import {
   Platform,
   Modal,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
-import { ChatMessage } from '../types';
+import { ChatMessage, Friend, FriendRequest } from '../types';
 import { PillButton } from '../components/common/PillButton';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 
+type ChatTabMode = 'friends' | 'requests' | 'community';
+
 export const ChatScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
   const {
+    friends,
+    incomingRequests,
+    outgoingRequests,
     channels,
     activeChannelId,
     setActiveChannelId,
     activeMessages,
     sendMessage,
-    joinDirectChannel,
+    sendFriendRequest,
+    acceptFriendRequest,
+    declineFriendRequest,
+    removeFriend,
+    openDirectChatWithFriend,
   } = useChat();
 
+  // Navigation State: 'home' (directory) vs 'chat' (active conversation)
+  const [currentView, setCurrentView] = useState<'home' | 'conversation'>('home');
+  const [activeTabMode, setActiveTabMode] = useState<ChatTabMode>('friends');
+
+  // Input & Modal States
   const [inputContent, setInputContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+  const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [friendCodeInput, setFriendCodeInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [copiedCodeToast, setCopiedCodeToast] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
-
   const myCode = user?.nerd_code || 'NERD-0000';
+
   const activeChannel = channels.find((c) => c.id === activeChannelId) || channels[0];
 
   useEffect(() => {
-    // Scroll to bottom when new messages arrive
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  }, [activeMessages.length]);
+    if (currentView === 'conversation') {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [activeMessages.length, currentView]);
 
   const handleCopyMyCode = async () => {
     try {
@@ -100,17 +119,32 @@ export const ChatScreen: React.FC = () => {
     await sendMessage(content, imageUri);
   };
 
-  const handleStartDirectChat = () => {
+  const handleSendRequest = async () => {
+    setRequestError(null);
+    setRequestSuccess(null);
     if (!friendCodeInput.trim()) return;
-    const code = friendCodeInput.trim().toUpperCase();
-    if (code === myCode) {
-      Alert.alert('Invalid Code', 'You cannot start a direct chat with your own code.');
-      return;
-    }
 
-    joinDirectChannel(code);
-    setFriendCodeInput('');
-    setIsConnectModalOpen(false);
+    const res = await sendFriendRequest(friendCodeInput.trim());
+    if (res.error) {
+      setRequestError(res.error);
+    } else {
+      setRequestSuccess(`Friend request sent to ${friendCodeInput.trim().toUpperCase()}!`);
+      setFriendCodeInput('');
+      setTimeout(() => {
+        setIsAddFriendModalOpen(false);
+        setRequestSuccess(null);
+      }, 1800);
+    }
+  };
+
+  const handleOpenFriendConversation = (friend: Friend) => {
+    openDirectChatWithFriend(friend);
+    setCurrentView('conversation');
+  };
+
+  const handleOpenCommunityHub = () => {
+    setActiveChannelId('global');
+    setCurrentView('conversation');
   };
 
   const formatMessageTime = (isoString: string) => {
@@ -118,6 +152,15 @@ export const ChatScreen: React.FC = () => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const filteredFriends = friends.filter(
+    (f) =>
+      f.friend_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      f.friend_code.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const activeFriendName = activeChannel?.other_user_name || activeChannel?.name || 'Friend';
+
+  // Render a Single Message Item
   const renderMessageItem = ({ item }: { item: ChatMessage }) => {
     const isMe = user ? item.sender_id === user.id : false;
 
@@ -146,7 +189,13 @@ export const ChatScreen: React.FC = () => {
             styles.messageBubble,
             isMe
               ? [styles.bubbleMe, { backgroundColor: theme.colors.accent }]
-              : [styles.bubbleOther, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }],
+              : [
+                  styles.bubbleOther,
+                  {
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                  },
+                ],
             { borderRadius: theme.radii.lg },
           ]}
         >
@@ -200,228 +249,667 @@ export const ChatScreen: React.FC = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
-      {/* Top Header Card */}
-      <View style={[styles.topHeader, { borderBottomColor: theme.colors.border }]}>
-        <View style={styles.headerTitleRow}>
-          <View>
-            <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
-              Nerd Chat
-            </Text>
-            <Text style={[styles.screenSubtitle, { color: theme.colors.textMuted }]}>
-              Real-time multi-user & direct channels
-            </Text>
-          </View>
+      {/* ========================================================================= */}
+      {/* VIEW 1: HOME PAGE / FRIENDS DIRECTORY & REQUESTS */}
+      {/* ========================================================================= */}
+      {currentView === 'home' ? (
+        <View style={styles.homeContainer}>
+          {/* Top Bar Header */}
+          <View style={[styles.topHeader, { borderBottomColor: theme.colors.border }]}>
+            <View style={styles.headerTitleRow}>
+              <View>
+                <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
+                  Nerd Chat
+                </Text>
+                <Text style={[styles.screenSubtitle, { color: theme.colors.textMuted }]}>
+                  Friends & real-time messaging
+                </Text>
+              </View>
 
-          {/* User's Unique Code Chip */}
-          <Pressable
-            onPress={handleCopyMyCode}
-            style={[
-              styles.myCodeChip,
-              {
-                backgroundColor: theme.colors.surfaceElevated,
-                borderColor: theme.colors.borderActive,
-                borderRadius: theme.radii.full,
-              },
-            ]}
-          >
-            <Ionicons name="key-outline" size={13} color={theme.colors.textPrimary} />
-            <Text style={[styles.myCodeText, { color: theme.colors.textPrimary }]}>
-              {myCode}
-            </Text>
-            <Ionicons
-              name={copiedCodeToast ? 'checkmark-circle' : 'copy-outline'}
-              size={13}
-              color={copiedCodeToast ? theme.colors.donePill : theme.colors.textMuted}
-            />
-          </Pressable>
-        </View>
-
-        {copiedCodeToast && (
-          <View style={[styles.toastBanner, { backgroundColor: 'rgba(78, 159, 118, 0.15)' }]}>
-            <Text style={[styles.toastText, { color: theme.colors.donePill }]}>
-              Your Unique Code ({myCode}) copied to clipboard!
-            </Text>
-          </View>
-        )}
-
-        {/* Channel Switcher Rail */}
-        <View style={styles.channelScrollRow}>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={channels}
-            keyExtractor={(c) => c.id}
-            contentContainerStyle={styles.channelsList}
-            renderItem={({ item: c }) => {
-              const isActive = c.id === activeChannelId;
-              return (
-                <Pressable
-                  onPress={() => setActiveChannelId(c.id)}
-                  style={[
-                    styles.channelPill,
-                    {
-                      backgroundColor: isActive ? theme.colors.accent : theme.colors.surfaceElevated,
-                      borderColor: isActive ? theme.colors.borderActive : theme.colors.border,
-                      borderRadius: theme.radii.full,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.channelPillText,
-                      { color: isActive ? theme.colors.textInverse : theme.colors.textPrimary },
-                    ]}
-                  >
-                    {c.name}
-                  </Text>
-                  {c.unread_count && c.unread_count > 0 ? (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadBadgeText}>{c.unread_count}</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            }}
-            ListFooterComponent={
+              {/* My Unique Code Pill */}
               <Pressable
-                onPress={() => setIsConnectModalOpen(true)}
+                onPress={handleCopyMyCode}
                 style={[
-                  styles.addDirectPill,
+                  styles.myCodeChip,
                   {
-                    backgroundColor: theme.colors.surfaceInput,
-                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.borderActive,
                     borderRadius: theme.radii.full,
                   },
                 ]}
               >
-                <Ionicons name="person-add-outline" size={13} color={theme.colors.textPrimary} />
-                <Text style={[styles.addDirectPillText, { color: theme.colors.textPrimary }]}>
-                  + Connect by Code
+                <Ionicons name="key-outline" size={13} color={theme.colors.textPrimary} />
+                <Text style={[styles.myCodeText, { color: theme.colors.textPrimary }]}>
+                  {myCode}
+                </Text>
+                <Ionicons
+                  name={copiedCodeToast ? 'checkmark-circle' : 'copy-outline'}
+                  size={13}
+                  color={copiedCodeToast ? theme.colors.donePill : theme.colors.textMuted}
+                />
+              </Pressable>
+            </View>
+
+            {copiedCodeToast && (
+              <View style={[styles.toastBanner, { backgroundColor: 'rgba(78, 159, 118, 0.15)' }]}>
+                <Text style={[styles.toastText, { color: theme.colors.donePill }]}>
+                  Your Unique Code ({myCode}) copied to clipboard!
+                </Text>
+              </View>
+            )}
+
+            {/* Sub-Tab Navigation Bar */}
+            <View style={styles.tabSwitcherRow}>
+              {/* Friends Tab */}
+              <Pressable
+                onPress={() => setActiveTabMode('friends')}
+                style={[
+                  styles.modeTabBtn,
+                  activeTabMode === 'friends' && {
+                    backgroundColor: theme.colors.accent,
+                    borderRadius: theme.radii.full,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="people"
+                  size={15}
+                  color={activeTabMode === 'friends' ? theme.colors.textInverse : theme.colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    {
+                      color:
+                        activeTabMode === 'friends'
+                          ? theme.colors.textInverse
+                          : theme.colors.textSecondary,
+                    },
+                  ]}
+                >
+                  Friends ({friends.length})
                 </Text>
               </Pressable>
-            }
-          />
-        </View>
-      </View>
 
-      {/* Messages List Area */}
-      <View style={styles.messagesContainer}>
-        {activeMessages.length === 0 ? (
-          <View style={styles.emptyMessagesWrap}>
-            <Ionicons name="chatbubbles-outline" size={42} color={theme.colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>
-              {activeChannel.is_direct ? 'Private Direct Channel' : 'Welcome to Nerd Community Hub'}
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
-              {activeChannel.is_direct
-                ? `You are connected with ${activeChannel.name}. Send a hello!`
-                : 'Say hello to all fellow Nerd explorers in real-time!'}
-            </Text>
+              {/* Friend Requests Tab */}
+              <Pressable
+                onPress={() => setActiveTabMode('requests')}
+                style={[
+                  styles.modeTabBtn,
+                  activeTabMode === 'requests' && {
+                    backgroundColor: theme.colors.accent,
+                    borderRadius: theme.radii.full,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="mail"
+                  size={15}
+                  color={activeTabMode === 'requests' ? theme.colors.textInverse : theme.colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    {
+                      color:
+                        activeTabMode === 'requests'
+                          ? theme.colors.textInverse
+                          : theme.colors.textSecondary,
+                    },
+                  ]}
+                >
+                  Requests
+                </Text>
+                {incomingRequests.length > 0 && (
+                  <View style={styles.requestsBadgePill}>
+                    <Text style={styles.requestsBadgeText}>{incomingRequests.length}</Text>
+                  </View>
+                )}
+              </Pressable>
+
+              {/* Community Hub Tab */}
+              <Pressable
+                onPress={() => setActiveTabMode('community')}
+                style={[
+                  styles.modeTabBtn,
+                  activeTabMode === 'community' && {
+                    backgroundColor: theme.colors.accent,
+                    borderRadius: theme.radii.full,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="globe-outline"
+                  size={15}
+                  color={activeTabMode === 'community' ? theme.colors.textInverse : theme.colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={[
+                    styles.modeTabText,
+                    {
+                      color:
+                        activeTabMode === 'community'
+                          ? theme.colors.textInverse
+                          : theme.colors.textSecondary,
+                    },
+                  ]}
+                >
+                  Community Hub
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={activeMessages}
-            keyExtractor={(m) => m.id}
-            renderItem={renderMessageItem}
-            contentContainerStyle={styles.messagesListContent}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </View>
 
-      {/* Image Preview Banner */}
-      {selectedImage && (
-        <View
-          style={[
-            styles.imagePreviewBanner,
-            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border },
-          ]}
-        >
-          <Image source={{ uri: selectedImage }} style={styles.attachedThumb} />
-          <Text style={[styles.imagePreviewText, { color: theme.colors.textPrimary }]}>
-            Photo attached
-          </Text>
-          <Pressable onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
-            <Ionicons name="close-circle" size={20} color={theme.colors.priorityHigh} />
-          </Pressable>
+          {/* ================= FRIENDS TAB ================= */}
+          {activeTabMode === 'friends' && (
+            <View style={styles.tabContentContainer}>
+              {/* Search & Add Friend Action Bar */}
+              <View style={styles.friendActionBar}>
+                <View
+                  style={[
+                    styles.searchWrap,
+                    {
+                      backgroundColor: theme.colors.surfaceInput,
+                      borderColor: theme.colors.border,
+                      borderRadius: theme.radii.full,
+                    },
+                  ]}
+                >
+                  <Ionicons name="search-outline" size={16} color={theme.colors.textMuted} />
+                  <TextInput
+                    style={[styles.searchInput, { color: theme.colors.textPrimary }]}
+                    placeholder="Search friends by name or code..."
+                    placeholderTextColor={theme.colors.textMuted}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={() => setIsAddFriendModalOpen(true)}
+                  style={[
+                    styles.addFriendActionBtn,
+                    {
+                      backgroundColor: theme.colors.accent,
+                      borderRadius: theme.radii.full,
+                    },
+                  ]}
+                >
+                  <Ionicons name="person-add" size={16} color={theme.colors.textInverse} style={{ marginRight: 4 }} />
+                  <Text style={[styles.addFriendActionBtnText, { color: theme.colors.textInverse }]}>
+                    + Add Friend
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Friends List */}
+              {friends.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <View
+                    style={[
+                      styles.emptyIconCircle,
+                      { backgroundColor: theme.colors.surfaceInput },
+                    ]}
+                  >
+                    <Ionicons name="people-outline" size={36} color={theme.colors.textMuted} />
+                  </View>
+                  <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>
+                    No Friends Added Yet
+                  </Text>
+                  <Text style={[styles.emptySub, { color: theme.colors.textSecondary }]}>
+                    Connect with your friends using their Unique Nerd Code to start chatting!
+                  </Text>
+                  <PillButton
+                    label="Add Your First Friend"
+                    variant="accent"
+                    size="md"
+                    icon={<Ionicons name="person-add" size={16} color={theme.colors.textInverse} />}
+                    onPress={() => setIsAddFriendModalOpen(true)}
+                    style={{ marginTop: 14 }}
+                  />
+                </View>
+              ) : (
+                <FlatList
+                  data={filteredFriends}
+                  keyExtractor={(f) => f.id}
+                  contentContainerStyle={styles.friendsListContent}
+                  renderItem={({ item: f }) => (
+                    <Pressable
+                      onPress={() => handleOpenFriendConversation(f)}
+                      style={[
+                        styles.friendCard,
+                        {
+                          backgroundColor: theme.colors.surfaceElevated,
+                          borderColor: theme.colors.border,
+                          borderRadius: theme.radii.lg,
+                        },
+                      ]}
+                    >
+                      {/* Avatar */}
+                      <View
+                        style={[
+                          styles.friendAvatar,
+                          {
+                            backgroundColor: theme.colors.accent,
+                            borderRadius: theme.radii.full,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.friendAvatarInitial, { color: theme.colors.textInverse }]}>
+                          {f.friend_name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+
+                      {/* Friend Info */}
+                      <View style={styles.friendDetailsCol}>
+                        <View style={styles.friendNameRow}>
+                          <Text style={[styles.friendRealName, { color: theme.colors.textPrimary }]}>
+                            {f.friend_name}
+                          </Text>
+                          <View
+                            style={[
+                              styles.friendCodeBadge,
+                              {
+                                backgroundColor: theme.colors.surfaceInput,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.full,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.friendCodeBadgeText, { color: theme.colors.textSecondary }]}>
+                              {f.friend_code}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.friendLastMsg, { color: theme.colors.textMuted }]}>
+                          Tap to open conversation
+                        </Text>
+                      </View>
+
+                      {/* Chat Action Icon */}
+                      <View style={styles.chatActionOrb}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.colors.accent} />
+                      </View>
+                    </Pressable>
+                  )}
+                />
+              )}
+            </View>
+          )}
+
+          {/* ================= REQUESTS TAB ================= */}
+          {activeTabMode === 'requests' && (
+            <ScrollView
+              contentContainerStyle={styles.requestsContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Incoming Requests Section */}
+              <View style={styles.requestSectionHeader}>
+                <Text style={[styles.requestSectionTitle, { color: theme.colors.textPrimary }]}>
+                  Incoming Friend Requests ({incomingRequests.length})
+                </Text>
+                <Text style={[styles.requestSectionSub, { color: theme.colors.textMuted }]}>
+                  Users who want to connect with you
+                </Text>
+              </View>
+
+              {incomingRequests.length === 0 ? (
+                <View
+                  style={[
+                    styles.emptyReqBox,
+                    {
+                      backgroundColor: theme.colors.surfaceElevated,
+                      borderColor: theme.colors.border,
+                      borderRadius: theme.radii.lg,
+                    },
+                  ]}
+                >
+                  <Ionicons name="mail-open-outline" size={28} color={theme.colors.textMuted} />
+                  <Text style={[styles.emptyReqText, { color: theme.colors.textSecondary }]}>
+                    No incoming requests right now.
+                  </Text>
+                </View>
+              ) : (
+                incomingRequests.map((req) => (
+                  <View
+                    key={req.id}
+                    style={[
+                      styles.requestCard,
+                      {
+                        backgroundColor: theme.colors.surfaceElevated,
+                        borderColor: theme.colors.borderActive,
+                        borderRadius: theme.radii.lg,
+                      },
+                    ]}
+                  >
+                    <View style={styles.reqSenderInfo}>
+                      <View
+                        style={[
+                          styles.reqAvatar,
+                          {
+                            backgroundColor: theme.colors.accent,
+                            borderRadius: theme.radii.full,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.reqAvatarText, { color: theme.colors.textInverse }]}>
+                          {req.sender_name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.reqSenderName, { color: theme.colors.textPrimary }]}>
+                          {req.sender_name}
+                        </Text>
+                        <Text style={[styles.reqSenderCode, { color: theme.colors.textMuted }]}>
+                          Code: {req.sender_code}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View style={styles.reqActionRow}>
+                      <Pressable
+                        onPress={() => acceptFriendRequest(req.id)}
+                        style={[
+                          styles.acceptBtn,
+                          {
+                            backgroundColor: theme.colors.donePill,
+                            borderRadius: theme.radii.full,
+                          },
+                        ]}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#FFF" />
+                        <Text style={styles.acceptBtnText}>Accept</Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => declineFriendRequest(req.id)}
+                        style={[
+                          styles.declineBtn,
+                          {
+                            backgroundColor: theme.colors.surfaceInput,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.full,
+                          },
+                        ]}
+                      >
+                        <Ionicons name="close" size={16} color={theme.colors.priorityHigh} />
+                        <Text style={[styles.declineBtnText, { color: theme.colors.priorityHigh }]}>
+                          Decline
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+
+              {/* Outgoing Requests Section */}
+              <View style={[styles.requestSectionHeader, { marginTop: 24 }]}>
+                <Text style={[styles.requestSectionTitle, { color: theme.colors.textPrimary }]}>
+                  Sent Requests ({outgoingRequests.length})
+                </Text>
+                <Text style={[styles.requestSectionSub, { color: theme.colors.textMuted }]}>
+                  Requests you have sent awaiting acceptance
+                </Text>
+              </View>
+
+              {outgoingRequests.length === 0 ? (
+                <View
+                  style={[
+                    styles.emptyReqBox,
+                    {
+                      backgroundColor: theme.colors.surfaceElevated,
+                      borderColor: theme.colors.border,
+                      borderRadius: theme.radii.lg,
+                    },
+                  ]}
+                >
+                  <Ionicons name="paper-plane-outline" size={24} color={theme.colors.textMuted} />
+                  <Text style={[styles.emptyReqText, { color: theme.colors.textSecondary }]}>
+                    No pending sent requests.
+                  </Text>
+                </View>
+              ) : (
+                outgoingRequests.map((req) => (
+                  <View
+                    key={req.id}
+                    style={[
+                      styles.requestCard,
+                      {
+                        backgroundColor: theme.colors.surfaceElevated,
+                        borderColor: theme.colors.border,
+                        borderRadius: theme.radii.lg,
+                      },
+                    ]}
+                  >
+                    <View style={styles.reqSenderInfo}>
+                      <Ionicons name="time-outline" size={20} color={theme.colors.accent} style={{ marginRight: 10 }} />
+                      <View>
+                        <Text style={[styles.reqSenderName, { color: theme.colors.textPrimary }]}>
+                          Sent to {req.receiver_code}
+                        </Text>
+                        <Text style={[styles.reqSenderCode, { color: theme.colors.textMuted }]}>
+                          Waiting for friend to accept
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.pendingPill}>
+                      <Text style={styles.pendingPillText}>Pending</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          )}
+
+          {/* ================= COMMUNITY HUB TAB ================= */}
+          {activeTabMode === 'community' && (
+            <View style={styles.communityHubPreviewWrap}>
+              <View
+                style={[
+                  styles.communityHeroCard,
+                  {
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                    borderRadius: theme.radii.xl,
+                  },
+                ]}
+              >
+                <View style={[styles.communityGlobeOrb, { backgroundColor: theme.colors.surfaceInput }]}>
+                  <Ionicons name="globe" size={40} color={theme.colors.accent} />
+                </View>
+                <Text style={[styles.communityHeroTitle, { color: theme.colors.textPrimary }]}>
+                  Nerd Community Hub
+                </Text>
+                <Text style={[styles.communityHeroSub, { color: theme.colors.textSecondary }]}>
+                  Join all fellow Nerd creators and task masters in one open global room in real time!
+                </Text>
+                <PillButton
+                  label="Enter Community Hub"
+                  variant="accent"
+                  size="lg"
+                  icon={<Ionicons name="chatbubbles" size={18} color={theme.colors.textInverse} />}
+                  onPress={handleOpenCommunityHub}
+                  style={{ marginTop: 18 }}
+                />
+              </View>
+            </View>
+          )}
+        </View>
+      ) : (
+        /* ========================================================================= */
+        /* VIEW 2: ACTIVE CONVERSATION STREAM */
+        /* ========================================================================= */
+        <View style={styles.conversationContainer}>
+          {/* Top Conversation Header */}
+          <View
+            style={[
+              styles.conversationHeader,
+              {
+                backgroundColor: theme.colors.surfaceElevated,
+                borderBottomColor: theme.colors.border,
+              },
+            ]}
+          >
+            <View style={styles.convHeaderLeft}>
+              {/* Back to Friends Button */}
+              <Pressable
+                onPress={() => setCurrentView('home')}
+                style={[
+                  styles.backBtn,
+                  {
+                    backgroundColor: theme.colors.surfaceInput,
+                    borderRadius: theme.radii.full,
+                  },
+                ]}
+              >
+                <Ionicons name="chevron-back" size={20} color={theme.colors.textPrimary} />
+              </Pressable>
+
+              {/* Friend Info */}
+              <View style={styles.convHeaderInfo}>
+                <Text style={[styles.convFriendName, { color: theme.colors.textPrimary }]}>
+                  {activeFriendName}
+                </Text>
+                <Text style={[styles.convFriendSub, { color: theme.colors.textMuted }]}>
+                  {activeChannel.is_direct
+                    ? `Friend Code: ${activeChannel.other_user_code}`
+                    : 'Global Community Chat Room'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.convOnlineBadge}>
+              <View style={styles.convOnlineDot} />
+              <Text style={[styles.convOnlineText, { color: theme.colors.donePill }]}>Connected</Text>
+            </View>
+          </View>
+
+          {/* Messages Stream */}
+          <View style={styles.messagesContainer}>
+            {activeMessages.length === 0 ? (
+              <View style={styles.emptyMessagesWrap}>
+                <Ionicons name="chatbubbles-outline" size={42} color={theme.colors.textMuted} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>
+                  {activeChannel.is_direct ? `Chat with ${activeFriendName}` : 'Welcome to Nerd Community Hub'}
+                </Text>
+                <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
+                  {activeChannel.is_direct
+                    ? `Send a message to ${activeFriendName} to start your conversation!`
+                    : 'Say hello to all fellow Nerd explorers in real-time!'}
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={activeMessages}
+                keyExtractor={(m) => m.id}
+                renderItem={renderMessageItem}
+                contentContainerStyle={styles.messagesListContent}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
+          </View>
+
+          {/* Image Preview Banner */}
+          {selectedImage && (
+            <View
+              style={[
+                styles.imagePreviewBanner,
+                { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border },
+              ]}
+            >
+              <Image source={{ uri: selectedImage }} style={styles.attachedThumb} />
+              <Text style={[styles.imagePreviewText, { color: theme.colors.textPrimary }]}>
+                Photo attached
+              </Text>
+              <Pressable onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
+                <Ionicons name="close-circle" size={20} color={theme.colors.priorityHigh} />
+              </Pressable>
+            </View>
+          )}
+
+          {/* Message Input Bar */}
+          <View
+            style={[
+              styles.inputContainer,
+              {
+                backgroundColor: theme.colors.surface,
+                borderTopColor: theme.colors.border,
+              },
+            ]}
+          >
+            <Pressable
+              onPress={handlePickImage}
+              style={[
+                styles.attachBtn,
+                {
+                  backgroundColor: theme.colors.surfaceInput,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <Ionicons name="camera-outline" size={20} color={theme.colors.textSecondary} />
+            </Pressable>
+
+            <View
+              style={[
+                styles.textInputWrapper,
+                {
+                  backgroundColor: theme.colors.surfaceInput,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.textInputField, { color: theme.colors.textPrimary }]}
+                value={inputContent}
+                onChangeText={setInputContent}
+                placeholder={`Message ${activeFriendName}...`}
+                placeholderTextColor={theme.colors.textMuted}
+                multiline={false}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+              />
+            </View>
+
+            <Pressable
+              onPress={handleSend}
+              disabled={!inputContent.trim() && !selectedImage}
+              style={[
+                styles.sendBtn,
+                {
+                  backgroundColor:
+                    inputContent.trim() || selectedImage ? theme.colors.accent : theme.colors.surfaceInput,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <Ionicons
+                name="arrow-up"
+                size={20}
+                color={
+                  inputContent.trim() || selectedImage ? theme.colors.textInverse : theme.colors.textMuted
+                }
+              />
+            </Pressable>
+          </View>
         </View>
       )}
 
-      {/* Message Input Bar */}
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            backgroundColor: theme.colors.surface,
-            borderTopColor: theme.colors.border,
-          },
-        ]}
-      >
-        <Pressable
-          onPress={handlePickImage}
-          style={[
-            styles.attachBtn,
-            {
-              backgroundColor: theme.colors.surfaceInput,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <Ionicons name="camera-outline" size={20} color={theme.colors.textSecondary} />
-        </Pressable>
-
-        <View
-          style={[
-            styles.textInputWrapper,
-            {
-              backgroundColor: theme.colors.surfaceInput,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <TextInput
-            style={[styles.textInputField, { color: theme.colors.textPrimary }]}
-            value={inputContent}
-            onChangeText={setInputContent}
-            placeholder={`Message ${activeChannel.name}...`}
-            placeholderTextColor={theme.colors.textMuted}
-            multiline={false}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-        </View>
-
-        <Pressable
-          onPress={handleSend}
-          disabled={!inputContent.trim() && !selectedImage}
-          style={[
-            styles.sendBtn,
-            {
-              backgroundColor:
-                inputContent.trim() || selectedImage ? theme.colors.accent : theme.colors.surfaceInput,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <Ionicons
-            name="arrow-up"
-            size={20}
-            color={
-              inputContent.trim() || selectedImage ? theme.colors.textInverse : theme.colors.textMuted
-            }
-          />
-        </Pressable>
-      </View>
-
-      {/* Connect with Friend Modal */}
+      {/* ========================================================================= */}
+      {/* MODAL: ADD FRIEND BY UNIQUE CODE */}
+      {/* ========================================================================= */}
       <Modal
-        visible={isConnectModalOpen}
+        visible={isAddFriendModalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsConnectModalOpen(false)}
+        onRequestClose={() => setIsAddFriendModalOpen(false)}
       >
         <View style={styles.modalOverlay}>
           <View
@@ -436,16 +924,33 @@ export const ChatScreen: React.FC = () => {
           >
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>
-                Connect by Unique Code
+                Add Friend by Unique Code
               </Text>
-              <Pressable onPress={() => setIsConnectModalOpen(false)}>
+              <Pressable onPress={() => setIsAddFriendModalOpen(false)}>
                 <Ionicons name="close" size={20} color={theme.colors.textPrimary} />
               </Pressable>
             </View>
 
             <Text style={[styles.modalSub, { color: theme.colors.textMuted }]}>
-              Enter a friend's unique Nerd code (e.g. NERD-8492) to start a 1-on-1 private chat channel.
+              Enter your friend's Unique Nerd Code (e.g. NERD-8400) to send a friend request. Once they accept, you can chat with their real username!
             </Text>
+
+            {/* Error or Success Feedback */}
+            {requestError && (
+              <View style={[styles.feedbackBanner, { backgroundColor: 'rgba(217, 83, 79, 0.15)' }]}>
+                <Text style={[styles.feedbackText, { color: theme.colors.priorityHigh }]}>
+                  {requestError}
+                </Text>
+              </View>
+            )}
+
+            {requestSuccess && (
+              <View style={[styles.feedbackBanner, { backgroundColor: 'rgba(78, 159, 118, 0.15)' }]}>
+                <Text style={[styles.feedbackText, { color: theme.colors.donePill }]}>
+                  {requestSuccess}
+                </Text>
+              </View>
+            )}
 
             <View
               style={[
@@ -471,10 +976,10 @@ export const ChatScreen: React.FC = () => {
 
             <View style={styles.modalActions}>
               <PillButton
-                label="Start Direct Chat"
+                label="Send Friend Request"
                 variant="accent"
                 size="md"
-                onPress={handleStartDirectChat}
+                onPress={handleSendRequest}
                 disabled={!friendCodeInput.trim()}
                 style={{ flex: 1 }}
               />
@@ -490,6 +995,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  /* Home View Styles */
+  homeContainer: {
+    flex: 1,
+  },
   topHeader: {
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -500,7 +1009,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   screenTitle: {
     fontSize: 20,
@@ -534,46 +1043,328 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  channelScrollRow: {
+  tabSwitcherRow: {
+    flexDirection: 'row',
+    gap: 6,
     marginTop: 4,
   },
-  channelsList: {
-    gap: 8,
-    alignItems: 'center',
-  },
-  channelPill: {
+  modeTabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    gap: 6,
+    paddingVertical: 7,
   },
-  channelPillText: {
+  modeTabText: {
     fontSize: 12,
     fontWeight: '700',
   },
-  unreadBadge: {
+  requestsBadgePill: {
     backgroundColor: '#D9534F',
     borderRadius: 999,
     paddingHorizontal: 6,
     paddingVertical: 1,
+    marginLeft: 4,
   },
-  unreadBadgeText: {
+  requestsBadgeText: {
     color: '#FFF',
     fontSize: 10,
     fontWeight: '800',
   },
-  addDirectPill: {
+  tabContentContainer: {
+    flex: 1,
+  },
+  friendActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  searchWrap: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    height: 40,
     borderWidth: 1,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    borderWidth: 0,
+  },
+  addFriendActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    height: 40,
+  },
+  addFriendActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  friendsListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 100,
+    gap: 8,
+  },
+  friendCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderWidth: 1,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  friendAvatar: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  friendAvatarInitial: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  friendDetailsCol: {
+    flex: 1,
+    gap: 2,
+  },
+  friendNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  friendRealName: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  friendCodeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+  },
+  friendCodeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  friendLastMsg: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  chatActionOrb: {
+    padding: 6,
+  },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 10,
+    paddingBottom: 80,
+  },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  emptySub: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  requestsContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 100,
+    gap: 8,
+  },
+  requestSectionHeader: {
+    marginBottom: 8,
+  },
+  requestSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  requestSectionSub: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  emptyReqBox: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    gap: 8,
+  },
+  emptyReqText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  requestCard: {
+    padding: 14,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  reqSenderInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reqAvatar: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reqAvatarText: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  reqSenderName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  reqSenderCode: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  reqActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  acceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    gap: 4,
+  },
+  acceptBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  declineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderWidth: 1,
+    gap: 4,
+  },
+  declineBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pendingPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(230, 160, 50, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  pendingPillText: {
+    color: '#D97706',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  communityHubPreviewWrap: {
+    flex: 1,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 80,
+  },
+  communityHeroCard: {
+    width: '100%',
+    maxWidth: 440,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    gap: 10,
+  },
+  communityGlobeOrb: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  communityHeroTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  communityHeroSub: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  /* Conversation View Styles */
+  conversationContainer: {
+    flex: 1,
+  },
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  convHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backBtn: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  convHeaderInfo: {
+    gap: 1,
+  },
+  convFriendName: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  convFriendSub: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  convOnlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 5,
   },
-  addDirectPillText: {
-    fontSize: 12,
+  convOnlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#4E9F76',
+  },
+  convOnlineText: {
+    fontSize: 11,
     fontWeight: '700',
   },
   messagesContainer: {
@@ -585,11 +1376,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
     gap: 10,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 13,
@@ -691,7 +1477,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingTop: 8,
-    paddingBottom: 90, // Leave room above the floating bottom navigation bar
+    paddingBottom: 90,
     borderTopWidth: 1,
     gap: 8,
   },
@@ -746,6 +1532,15 @@ const styles = StyleSheet.create({
   modalSub: {
     fontSize: 12,
     lineHeight: 17,
+  },
+  feedbackBanner: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  feedbackText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   modalInputWrap: {
     flexDirection: 'row',

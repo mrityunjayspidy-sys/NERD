@@ -58,6 +58,28 @@ export interface ChatChannel {
   unread_count?: number;
 }
 
+export interface Friend {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  friend_name: string;
+  friend_code: string;
+  friend_email?: string;
+  created_at: string;
+}
+
+export interface FriendRequest {
+  id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_code: string;
+  receiver_code: string;
+  receiver_id?: string;
+  receiver_name?: string;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
+}
+
 export interface SpatialNodeState {
   task: Task;
   x: number;

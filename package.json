@@ -8,7 +8,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build": "expo export -p web",
-    "vercel-build": "expo export -p web"
+    "vercel-build": "expo export -p web",
+    "build:apk": "eas build -p android --profile preview"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",

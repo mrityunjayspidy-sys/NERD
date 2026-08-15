@@ -101,14 +101,6 @@ export const SpatialTaskNode: React.FC<SpatialTaskNodeProps> = ({
       const scaleVal = zoomScale > 0 ? zoomScale : 1;
       dragOffsetX.value = event.translationX / scaleVal;
       dragOffsetY.value = event.translationY / scaleVal;
-
-      if (onDrag) {
-        runOnJS(onDrag)(
-          task.id,
-          Math.round(baseX.value + dragOffsetX.value),
-          Math.round(baseY.value + dragOffsetY.value)
-        );
-      }
     })
     .onEnd(() => {
       isDragging.value = false;

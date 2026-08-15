@@ -20,6 +20,7 @@ import { NerdLogo } from './src/components/common/NerdLogo';
 import { DesktopHeader } from './src/components/common/DesktopHeader';
 import { useResponsive } from './src/hooks/useResponsive';
 import { Ionicons } from '@expo/vector-icons';
+import * as Font from 'expo-font';
 import * as Haptics from 'expo-haptics';
 
 type TabView = 'home' | 'space' | 'agenda' | 'chat';
@@ -308,6 +309,10 @@ const MainAppContent: React.FC = () => {
 };
 
 export default function App() {
+  const [fontsLoaded] = Font.useFonts({
+    ...Ionicons.font,
+  });
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>

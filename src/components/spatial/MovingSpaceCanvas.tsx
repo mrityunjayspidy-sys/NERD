@@ -84,10 +84,10 @@ export const MovingSpaceCanvas: React.FC<MovingSpaceCanvasProps> = ({
         MAX_ZOOM
       );
       scale.value = nextScale;
-      runOnJS(updateZoomState)(nextScale);
     })
     .onEnd(() => {
       savedScale.value = scale.value;
+      runOnJS(updateZoomState)(scale.value);
     });
 
   // 3. Double-tap to reset view

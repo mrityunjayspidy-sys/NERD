@@ -40,8 +40,10 @@ export const ChatScreen: React.FC = () => {
     sendFriendRequest,
     acceptFriendRequest,
     declineFriendRequest,
+    cancelFriendRequest,
     removeFriend,
     openDirectChatWithFriend,
+    syncSocialData,
   } = useChat();
 
   // Navigation State: 'home' (directory) vs 'chat' (active conversation)
@@ -547,13 +549,39 @@ export const ChatScreen: React.FC = () => {
               showsVerticalScrollIndicator={false}
             >
               {/* Incoming Requests Section */}
-              <View style={styles.requestSectionHeader}>
-                <Text style={[styles.requestSectionTitle, { color: theme.colors.textPrimary }]}>
-                  Incoming Friend Requests ({incomingRequests.length})
-                </Text>
-                <Text style={[styles.requestSectionSub, { color: theme.colors.textMuted }]}>
-                  Users who want to connect with you
-                </Text>
+              <View style={styles.requestSectionHeaderRow}>
+                <View style={styles.requestSectionHeader}>
+                  <Text style={[styles.requestSectionTitle, { color: theme.colors.textPrimary }]}>
+                    Incoming Friend Requests ({incomingRequests.length})
+                  </Text>
+                  <Text style={[styles.requestSectionSub, { color: theme.colors.textMuted }]}>
+                    Users who want to connect with you
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={() => {
+                    syncSocialData();
+                    if (Platform.OS !== 'web') {
+                      try {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch (_) {}
+                    }
+                  }}
+                  style={[
+                    styles.refreshBtn,
+                    {
+                      backgroundColor: theme.colors.surfaceInput,
+                      borderColor: theme.colors.border,
+                      borderRadius: theme.radii.full,
+                    },
+                  ]}
+                >
+                  <Ionicons name="refresh-outline" size={16} color={theme.colors.textPrimary} />
+                  <Text style={[styles.refreshBtnText, { color: theme.colors.textPrimary }]}>
+                    Refresh
+                  </Text>
+                </Pressable>
               </View>
 
               {incomingRequests.length === 0 ? (
@@ -685,19 +713,38 @@ export const ChatScreen: React.FC = () => {
                       },
                     ]}
                   >
-                    <View style={styles.reqSenderInfo}>
-                      <Ionicons name="time-outline" size={20} color={theme.colors.accent} style={{ marginRight: 10 }} />
-                      <View>
-                        <Text style={[styles.reqSenderName, { color: theme.colors.textPrimary }]}>
-                          Sent to {req.receiver_code}
-                        </Text>
-                        <Text style={[styles.reqSenderCode, { color: theme.colors.textMuted }]}>
-                          Waiting for friend to accept
-                        </Text>
+                    <View style={styles.reqOutgoingRow}>
+                      <View style={styles.reqSenderInfo}>
+                        <Ionicons name="time-outline" size={20} color={theme.colors.accent} style={{ marginRight: 10 }} />
+                        <View>
+                          <Text style={[styles.reqSenderName, { color: theme.colors.textPrimary }]}>
+                            Sent to {req.receiver_code}
+                          </Text>
+                          <Text style={[styles.reqSenderCode, { color: theme.colors.textMuted }]}>
+                            Waiting for friend to accept
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <View style={styles.pendingPill}>
-                      <Text style={styles.pendingPillText}>Pending</Text>
+
+                      <View style={styles.reqOutgoingActions}>
+                        <View style={styles.pendingPill}>
+                          <Text style={styles.pendingPillText}>Pending</Text>
+                        </View>
+                        <Pressable
+                          onPress={() => cancelFriendRequest(req.id)}
+                          style={[
+                            styles.cancelReqBtn,
+                            {
+                              backgroundColor: theme.colors.surfaceInput,
+                              borderColor: theme.colors.border,
+                              borderRadius: theme.radii.full,
+                            },
+                          ]}
+                          hitSlop={6}
+                        >
+                          <Ionicons name="trash-outline" size={15} color={theme.colors.priorityHigh} />
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
                 ))
@@ -1193,8 +1240,43 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
     gap: 8,
   },
-  requestSectionHeader: {
+  requestSectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  requestSectionHeader: {
+    flex: 1,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    gap: 4,
+  },
+  refreshBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  reqOutgoingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reqOutgoingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cancelReqBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   requestSectionTitle: {
     fontSize: 15,
@@ -1275,7 +1357,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   pendingPill: {
-    alignSelf: 'flex-start',
     backgroundColor: 'rgba(230, 160, 50, 0.15)',
     paddingHorizontal: 8,
     paddingVertical: 3,

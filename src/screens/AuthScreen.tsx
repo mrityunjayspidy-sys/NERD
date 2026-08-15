@@ -27,6 +27,8 @@ export const AuthScreen: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
@@ -497,9 +499,20 @@ export const AuthScreen: React.FC = () => {
                       placeholderTextColor={theme.colors.textMuted}
                       value={password}
                       onChangeText={setPassword}
-                      secureTextEntry
+                      secureTextEntry={!showPassword}
                       autoCapitalize="none"
                     />
+                    <Pressable
+                      onPress={() => setShowPassword((prev) => !prev)}
+                      style={styles.eyeToggleBtn}
+                      hitSlop={8}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color={theme.colors.textMuted}
+                      />
+                    </Pressable>
                   </View>
                 </View>
               )}
@@ -532,9 +545,20 @@ export const AuthScreen: React.FC = () => {
                       placeholderTextColor={theme.colors.textMuted}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      secureTextEntry
+                      secureTextEntry={!showConfirmPassword}
                       autoCapitalize="none"
                     />
+                    <Pressable
+                      onPress={() => setShowConfirmPassword((prev) => !prev)}
+                      style={styles.eyeToggleBtn}
+                      hitSlop={8}
+                    >
+                      <Ionicons
+                        name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color={theme.colors.textMuted}
+                      />
+                    </Pressable>
                   </View>
                 </View>
               )}
@@ -808,6 +832,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     borderWidth: 0,
+  },
+  eyeToggleBtn: {
+    padding: 6,
+    marginLeft: 6,
   },
   submitBtn: {
     marginTop: 10,

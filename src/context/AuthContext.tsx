@@ -42,25 +42,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && mounted) {
+          const uName = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Nerd Explorer';
+          const uCode = session.user.user_metadata?.nerd_code || generateNerdCode(session.user.id);
           setUser({
             id: session.user.id,
             email: session.user.email || '',
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-            nerd_code: session.user.user_metadata?.nerd_code || generateNerdCode(session.user.id),
+            name: uName,
+            nerd_code: uCode,
           });
           await fetchUserSettings(session.user.id);
+
+          // Keep public profiles table synced for friend lookup
+          supabase.from('profiles').upsert({
+            id: session.user.id,
+            name: uName,
+            nerd_code: uCode,
+            email: session.user.email || '',
+            updated_at: new Date().toISOString(),
+          }).then(() => {}, () => {});
         }
 
         // Listen for Supabase auth state changes
         supabase.auth.onAuthStateChange(async (event, session) => {
           if (session?.user && mounted) {
+            const uName = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Nerd Explorer';
+            const uCode = session.user.user_metadata?.nerd_code || generateNerdCode(session.user.id);
             setUser({
               id: session.user.id,
               email: session.user.email || '',
-              name: session.user.user_metadata?.name || session.user.email?.split('@')[0],
-              nerd_code: session.user.user_metadata?.nerd_code || generateNerdCode(session.user.id),
+              name: uName,
+              nerd_code: uCode,
             });
             await fetchUserSettings(session.user.id);
+
+            supabase.from('profiles').upsert({
+              id: session.user.id,
+              name: uName,
+              nerd_code: uCode,
+              email: session.user.email || '',
+              updated_at: new Date().toISOString(),
+            }).then(() => {}, () => {});
           } else if (mounted) {
             setUser(null);
           }
@@ -210,6 +231,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       setUser((prev) => (prev ? { ...prev, name: updates.name } : prev));
+
+      supabase.from('profiles').upsert({
+        id: user.id,
+        name: updates.name,
+        nerd_code: user.nerd_code || generateNerdCode(user.id),
+        email: user.email || '',
+        updated_at: new Date().toISOString(),
+      }).then(() => {}, () => {});
+
       return {};
     } catch (err: any) {
       console.warn('Error updating user profile in Supabase:', err);

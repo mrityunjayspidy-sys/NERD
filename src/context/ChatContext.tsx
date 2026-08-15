@@ -19,9 +19,11 @@ interface ChatContextType {
   sendFriendRequest: (targetCode: string) => Promise<{ success: boolean; error?: string }>;
   acceptFriendRequest: (requestId: string) => Promise<void>;
   declineFriendRequest: (requestId: string) => Promise<void>;
+  cancelFriendRequest: (requestId: string) => Promise<void>;
   removeFriend: (friendId: string) => Promise<void>;
   openDirectChatWithFriend: (friend: Friend) => string;
   joinDirectChannel: (otherUserCode: string, otherUserName?: string) => string;
+  syncSocialData: () => Promise<void>;
   isLoading: boolean;
   totalUnreadCount: number;
 }
@@ -50,7 +52,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load cached friends, requests, channels, and messages
+  // Load cached data on mount
   useEffect(() => {
     async function loadCache() {
       try {
@@ -92,6 +94,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Fetch remote friends and requests from Supabase
   const syncSocialData = useCallback(async () => {
     if (!user) return;
+    const myCode = (user.nerd_code || '').trim().toUpperCase();
+
     try {
       // 1. Fetch Friends
       const { data: friendsData } = await supabase
@@ -99,19 +103,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .select('*')
         .eq('user_id', user.id);
 
-      if (friendsData && friendsData.length > 0) {
+      if (friendsData) {
         setFriends(friendsData as Friend[]);
         AsyncStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friendsData)).catch(() => {});
       }
 
-      // 2. Fetch Friend Requests (incoming & outgoing)
-      const myCode = user.nerd_code || '';
-      const { data: requestsData } = await supabase
+      // 2. Fetch Friend Requests (matching my code, my id, or sent by me)
+      const { data: requestsData, error } = await supabase
         .from('friend_requests')
         .select('*')
-        .or(`receiver_code.eq.${myCode},sender_id.eq.${user.id}`);
+        .or(`receiver_code.ilike.${myCode},receiver_id.eq.${user.id},sender_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
 
-      if (requestsData) {
+      if (requestsData && !error) {
         setFriendRequests(requestsData as FriendRequest[]);
         AsyncStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(requestsData)).catch(() => {});
       }
@@ -120,8 +124,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Initial sync and 4-second recurring polling for reliable multi-device friend requests
   useEffect(() => {
     syncSocialData();
+    const interval = setInterval(() => {
+      syncSocialData();
+    }, 4000);
+    return () => clearInterval(interval);
   }, [syncSocialData]);
 
   // Fetch messages from Supabase for the active channel
@@ -193,9 +202,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       )
       .subscribe();
 
-    // Friend Requests Realtime
+    // Real-time Friend Requests
     const requestsChannel = supabase
-      .channel('realtime:friend_requests')
+      .channel('realtime:friend_requests_hub')
       .on(
         'postgres_changes',
         {
@@ -215,37 +224,105 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user, activeChannelId, syncSocialData]);
 
-  // Send a Friend Request using friend's Unique Nerd Code
+  // Send a Friend Request with ID verification and format checking
   const sendFriendRequest = async (targetCode: string): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'User not authenticated' };
-    const myCode = user.nerd_code || 'NERD-0000';
-    const cleanTargetCode = targetCode.trim().toUpperCase();
+    const myCode = (user.nerd_code || 'NERD-0000').toUpperCase();
 
-    if (cleanTargetCode === myCode) {
+    // 1. Normalize code format
+    let cleanCode = targetCode.trim().toUpperCase();
+    if (!cleanCode.startsWith('NERD-')) {
+      cleanCode = `NERD-${cleanCode}`;
+    }
+
+    // 2. Validate syntax: must be like NERD-XXXX
+    const codePattern = /^NERD-[A-Z0-9]{3,8}$/;
+    if (!codePattern.test(cleanCode)) {
+      return {
+        success: false,
+        error: 'Invalid Nerd Code format. Must look like NERD-8400.',
+      };
+    }
+
+    // 3. Self-request check
+    if (cleanCode === myCode) {
       return { success: false, error: 'You cannot send a friend request to your own code.' };
     }
 
-    // Check if already friends
-    if (friends.some((f) => f.friend_code === cleanTargetCode)) {
-      return { success: false, error: `You are already friends with ${cleanTargetCode}.` };
+    // 4. Check if already friends
+    if (friends.some((f) => f.friend_code.toUpperCase() === cleanCode)) {
+      return { success: false, error: `You are already friends with ${cleanCode}.` };
     }
 
-    // Check if request already pending
+    // 5. Check if request already pending
     const existing = friendRequests.find(
       (r) =>
-        (r.sender_id === user.id && r.receiver_code === cleanTargetCode && r.status === 'pending') ||
-        (r.sender_code === cleanTargetCode && r.receiver_code === myCode && r.status === 'pending')
+        ((r.sender_id === user.id && r.receiver_code.toUpperCase() === cleanCode) ||
+          (r.sender_code.toUpperCase() === cleanCode && r.receiver_code.toUpperCase() === myCode)) &&
+        r.status === 'pending'
     );
     if (existing) {
       return { success: false, error: 'A friend request is already pending between you two.' };
     }
 
+    // 6. Verify that this target user exists in database / profiles
+    let targetUserName = cleanCode;
+    let targetUserId: string | null = null;
+
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, name, nerd_code')
+        .ilike('nerd_code', cleanCode)
+        .maybeSingle();
+
+      if (profile) {
+        targetUserName = profile.name || cleanCode;
+        targetUserId = profile.id;
+      } else {
+        // Look up in messages table as fallback check
+        const { data: msgUser } = await supabase
+          .from('messages')
+          .select('sender_id, sender_name')
+          .ilike('sender_name', cleanCode)
+          .limit(1);
+
+        if (!profile && (!msgUser || msgUser.length === 0)) {
+          // If we haven't found any record of this code
+          // To be helpful, check if it exists in friend_requests or direct channels
+          const { data: prevReq } = await supabase
+            .from('friend_requests')
+            .select('sender_name, sender_id')
+            .ilike('sender_code', cleanCode)
+            .limit(1);
+
+          if (!prevReq || prevReq.length === 0) {
+            return {
+              success: false,
+              error: `No Nerd user found with code "${cleanCode}". Please verify the code with your friend.`,
+            };
+          } else {
+            targetUserName = prevReq[0].sender_name || cleanCode;
+            targetUserId = prevReq[0].sender_id;
+          }
+        } else if (msgUser && msgUser.length > 0) {
+          targetUserName = msgUser[0].sender_name || cleanCode;
+          targetUserId = msgUser[0].sender_id;
+        }
+      }
+    } catch (e) {
+      console.warn('Profile existence check warning:', e);
+    }
+
+    const optimisticId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     const newRequest: FriendRequest = {
-      id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: optimisticId,
       sender_id: user.id,
       sender_name: user.name || 'Nerd Explorer',
       sender_code: myCode,
-      receiver_code: cleanTargetCode,
+      receiver_code: cleanCode,
+      receiver_id: targetUserId || undefined,
+      receiver_name: targetUserName,
       status: 'pending',
       created_at: new Date().toISOString(),
     };
@@ -256,13 +333,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     AsyncStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(updatedRequests)).catch(() => {});
 
     try {
-      await supabase.from('friend_requests').insert({
+      const { data, error } = await supabase.from('friend_requests').insert({
         sender_id: user.id,
         sender_name: user.name || 'Nerd Explorer',
         sender_code: myCode,
-        receiver_code: cleanTargetCode,
+        receiver_code: cleanCode,
+        receiver_id: targetUserId || null,
+        receiver_name: targetUserName,
         status: 'pending',
-      });
+      }).select().single();
+
+      if (data && !error) {
+        setFriendRequests((prev) =>
+          prev.map((r) => (r.id === optimisticId ? (data as FriendRequest) : r))
+        );
+      }
     } catch (err) {
       console.warn('Error inserting friend request to Supabase:', err);
     }
@@ -270,7 +355,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  // Accept a Friend Request
+  // Accept a Friend Request (bidirectional friendship)
   const acceptFriendRequest = async (requestId: string) => {
     if (!user) return;
     const req = friendRequests.find((r) => r.id === requestId);
@@ -282,14 +367,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (_) {}
     }
 
-    // Update request state
+    // 1. Update local request state to accepted
     const updatedRequests: FriendRequest[] = friendRequests.map((r) =>
       r.id === requestId ? { ...r, status: 'accepted' as const } : r
     );
     setFriendRequests(updatedRequests);
     AsyncStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(updatedRequests)).catch(() => {});
 
-    // Create Friend Object
+    // 2. Create Friend Object for current user
     const newFriend: Friend = {
       id: `friend-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       user_id: user.id,
@@ -303,17 +388,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFriends(updatedFriends);
     AsyncStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(updatedFriends)).catch(() => {});
 
-    // Automatically create direct chat channel with Friend's Real Name
+    // 3. Open direct conversation with friend's real name
     openDirectChatWithFriend(newFriend);
 
     try {
+      // Update request status in Supabase
       await supabase.from('friend_requests').update({ status: 'accepted' }).eq('id', requestId);
-      await supabase.from('friends').insert({
-        user_id: user.id,
-        friend_id: req.sender_id,
-        friend_name: req.sender_name,
-        friend_code: req.sender_code,
-      });
+
+      // Insert reciprocal friend rows in Supabase for both users
+      await supabase.from('friends').insert([
+        {
+          user_id: user.id,
+          friend_id: req.sender_id,
+          friend_name: req.sender_name,
+          friend_code: req.sender_code,
+        },
+        {
+          user_id: req.sender_id,
+          friend_id: user.id,
+          friend_name: user.name || 'Nerd Explorer',
+          friend_code: user.nerd_code || 'NERD-0000',
+        },
+      ]);
     } catch (err) {
       console.warn('Error updating accepted friend request in Supabase:', err);
     }
@@ -334,6 +430,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Cancel / Delete a Sent Friend Request
+  const cancelFriendRequest = async (requestId: string) => {
+    const updatedRequests = friendRequests.filter((r) => r.id !== requestId);
+    setFriendRequests(updatedRequests);
+    AsyncStorage.setItem(REQUESTS_STORAGE_KEY, JSON.stringify(updatedRequests)).catch(() => {});
+
+    try {
+      await supabase.from('friend_requests').delete().eq('id', requestId);
+    } catch (err) {
+      console.warn('Error canceling friend request in Supabase:', err);
+    }
+  };
+
   // Remove a Friend
   const removeFriend = async (friendId: string) => {
     const updatedFriends = friends.filter((f) => f.id !== friendId);
@@ -347,17 +456,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Open Direct Chat with a Friend using their Real Name
+  // Open Direct Chat with a Friend using their Real Username
   const openDirectChatWithFriend = (friend: Friend): string => {
     if (!user) return 'global';
-    const myCode = user.nerd_code || 'NERD-0000';
-    const channelId = getDirectChannelId(myCode, friend.friend_code);
+    const myCode = (user.nerd_code || 'NERD-0000').toUpperCase();
+    const friendCode = friend.friend_code.toUpperCase();
+    const channelId = getDirectChannelId(myCode, friendCode);
 
     const directChannel: ChatChannel = {
       id: channelId,
       name: friend.friend_name, // Real User Name!
       is_direct: true,
-      other_user_code: friend.friend_code,
+      other_user_code: friendCode,
       other_user_name: friend.friend_name,
     };
 
@@ -375,12 +485,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Join or start a Direct Channel with a friend using their Unique Nerd Code
   const joinDirectChannel = (otherUserCode: string, otherUserName?: string): string => {
     if (!user) return 'global';
-    const myCode = user.nerd_code || 'NERD-0000';
+    const myCode = (user.nerd_code || 'NERD-0000').toUpperCase();
     const cleanOtherCode = otherUserCode.trim().toUpperCase();
     const channelId = getDirectChannelId(myCode, cleanOtherCode);
 
-    // Look up friend's real name if already added
-    const matchedFriend = friends.find((f) => f.friend_code === cleanOtherCode);
+    const matchedFriend = friends.find((f) => f.friend_code.toUpperCase() === cleanOtherCode);
     const resolvedName = matchedFriend ? matchedFriend.friend_name : otherUserName || cleanOtherCode;
 
     const newChannel: ChatChannel = {
@@ -464,10 +573,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const myCode = user?.nerd_code || '';
+  const myCode = (user?.nerd_code || '').trim().toUpperCase();
+
+  // Filter incoming requests (case-insensitive and matching either receiver_code or receiver_id)
   const incomingRequests = friendRequests.filter(
-    (r) => r.receiver_code === myCode && r.status === 'pending'
+    (r) =>
+      (r.receiver_code.trim().toUpperCase() === myCode || r.receiver_id === user?.id) &&
+      r.sender_id !== user?.id &&
+      r.status === 'pending'
   );
+
+  // Filter outgoing sent requests
   const outgoingRequests = friendRequests.filter(
     (r) => r.sender_id === user?.id && r.status === 'pending'
   );
@@ -490,9 +606,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendFriendRequest,
         acceptFriendRequest,
         declineFriendRequest,
+        cancelFriendRequest,
         removeFriend,
         openDirectChatWithFriend,
         joinDirectChannel,
+        syncSocialData,
         isLoading,
         totalUnreadCount,
       }}

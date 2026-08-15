@@ -95,6 +95,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncSocialData = useCallback(async () => {
     if (!user) return;
     const myCode = (user.nerd_code || '').trim().toUpperCase();
+    const cleanCodeNum = myCode.replace('NERD-', '');
 
     try {
       // 1. Fetch Friends
@@ -108,11 +109,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         AsyncStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friendsData)).catch(() => {});
       }
 
-      // 2. Fetch Friend Requests (matching my code, my id, or sent by me)
+      // 2. Fetch Friend Requests (matching my code, numeric code, my id, or sent by me)
       const { data: requestsData, error } = await supabase
         .from('friend_requests')
         .select('*')
-        .or(`receiver_code.ilike.${myCode},receiver_id.eq.${user.id},sender_id.eq.${user.id}`)
+        .or(`receiver_code.ilike.${myCode},receiver_code.ilike.%${cleanCodeNum}%,receiver_id.eq.${user.id},sender_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
 
       if (requestsData && !error) {
@@ -265,7 +266,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'A friend request is already pending between you two.' };
     }
 
-    // 6. Verify that this target user exists in database / profiles
+    // 6. Look up target profile name if available (best effort)
     let targetUserName = cleanCode;
     let targetUserId: string | null = null;
 
@@ -280,38 +281,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetUserName = profile.name || cleanCode;
         targetUserId = profile.id;
       } else {
-        // Look up in messages table as fallback check
         const { data: msgUser } = await supabase
           .from('messages')
           .select('sender_id, sender_name')
           .ilike('sender_name', cleanCode)
           .limit(1);
 
-        if (!profile && (!msgUser || msgUser.length === 0)) {
-          // If we haven't found any record of this code
-          // To be helpful, check if it exists in friend_requests or direct channels
-          const { data: prevReq } = await supabase
-            .from('friend_requests')
-            .select('sender_name, sender_id')
-            .ilike('sender_code', cleanCode)
-            .limit(1);
-
-          if (!prevReq || prevReq.length === 0) {
-            return {
-              success: false,
-              error: `No Nerd user found with code "${cleanCode}". Please verify the code with your friend.`,
-            };
-          } else {
-            targetUserName = prevReq[0].sender_name || cleanCode;
-            targetUserId = prevReq[0].sender_id;
-          }
-        } else if (msgUser && msgUser.length > 0) {
+        if (msgUser && msgUser.length > 0) {
           targetUserName = msgUser[0].sender_name || cleanCode;
           targetUserId = msgUser[0].sender_id;
         }
       }
     } catch (e) {
-      console.warn('Profile existence check warning:', e);
+      console.warn('Profile lookup note:', e);
     }
 
     const optimisticId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
@@ -573,12 +555,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const myCode = (user?.nerd_code || '').trim().toUpperCase();
+  const normalizeCode = (c?: string) => {
+    const clean = (c || '').trim().toUpperCase();
+    if (!clean) return '';
+    return clean.startsWith('NERD-') ? clean : `NERD-${clean}`;
+  };
+
+  const myNormalizedCode = normalizeCode(user?.nerd_code);
 
   // Filter incoming requests (case-insensitive and matching either receiver_code or receiver_id)
   const incomingRequests = friendRequests.filter(
     (r) =>
-      (r.receiver_code.trim().toUpperCase() === myCode || r.receiver_id === user?.id) &&
+      (normalizeCode(r.receiver_code) === myNormalizedCode || (r.receiver_id && r.receiver_id === user?.id)) &&
       r.sender_id !== user?.id &&
       r.status === 'pending'
   );

@@ -95,13 +95,10 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {!isDesktop && <Header onOpenSettings={onOpenSettings} />}
+      <Header onOpenSettings={onOpenSettings} />
 
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          isDesktop && styles.desktopScrollContent,
-        ]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Companion Momentum Banner */}
@@ -299,7 +296,7 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
               />
             </View>
           ) : (
-            <View style={[styles.cardsStack, isDesktop && styles.desktopCardsStack]}>
+            <View style={styles.cardsStack}>
               {filteredTasks.map((task) => {
                 const isDone = task.status === 'done';
                 const effectivePriority = getEffectivePriority(task);
@@ -318,7 +315,6 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
                     onPress={() => onSelectTask(task)}
                     style={[
                       styles.taskCard,
-                      isDesktop && styles.desktopTaskCard,
                       {
                         backgroundColor: theme.colors.surfaceElevated,
                         borderColor: isHigh && !isDone ? theme.colors.priorityHigh : theme.colors.border,

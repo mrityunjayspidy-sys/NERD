@@ -126,16 +126,6 @@ const MainAppContent: React.FC = () => {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]} edges={['top', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* Desktop Top Header Bar for Laptops / Desktop Screens */}
-      {isDesktop && (
-        <DesktopHeader
-          activeTab={activeTab}
-          onSelectTab={handleTabSwitch}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onAddTask={() => handleOpenAddTask()}
-        />
-      )}
-
       {/* Main View Switcher */}
       <View style={styles.contentContainer}>
         {activeTab === 'home' && (
@@ -162,19 +152,18 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'chat' && <ChatScreen />}
       </View>
 
-      {/* Floating Bottom Nav Pill Bar (Mobile & Tablet screens only) */}
-      {!isDesktop && (
-        <View style={styles.bottomNavContainer} pointerEvents="box-none">
-          <View
-            style={[
-              styles.navPill,
-              {
-                backgroundColor: theme.colors.surfaceElevated,
-                borderColor: theme.colors.border,
-                borderRadius: theme.radii.full,
-              },
-            ]}
-          >
+      {/* Floating Bottom Nav Pill Bar */}
+      <View style={styles.bottomNavContainer} pointerEvents="box-none">
+        <View
+          style={[
+            styles.navPill,
+            {
+              backgroundColor: theme.colors.surfaceElevated,
+              borderColor: theme.colors.border,
+              borderRadius: theme.radii.full,
+            },
+          ]}
+        >
             {/* Tab 1: Home (General Tasks) */}
             <Pressable
               onPress={() => handleTabSwitch('home')}
@@ -289,7 +278,6 @@ const MainAppContent: React.FC = () => {
             </Pressable>
           </View>
         </View>
-      )}
 
       {/* Task Detail Modal */}
       <TaskDetailModal

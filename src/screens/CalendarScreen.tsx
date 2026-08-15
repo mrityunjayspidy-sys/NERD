@@ -13,6 +13,7 @@ import { useTasks, getEffectivePriority } from '../context/TaskContext';
 import { Task } from '../types';
 import { PillButton } from '../components/common/PillButton';
 import { syncTaskToCalendar } from '../services/calendar';
+import { useResponsive } from '../hooks/useResponsive';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -26,6 +27,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
   onAddTask,
 }) => {
   const { theme } = useTheme();
+  const { isDesktop } = useResponsive();
   const { tasks, toggleTaskStatus } = useTasks();
 
   const [selectedDayOffset, setSelectedDayOffset] = useState(0);
@@ -80,97 +82,101 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Calendar Strip Header */}
-      <View style={[styles.headerSection, { borderBottomColor: theme.colors.border }]}>
-        <View style={styles.titleRow}>
-          <View>
-            <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
-              Agenda Orbit
-            </Text>
-            <Text style={[styles.dateSubtitle, { color: theme.colors.textSecondary }]}>
-              {selectedDateObj.toLocaleDateString('en-US', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </Text>
+      <View style={[styles.innerWrap, isDesktop && styles.desktopInnerWrap]}>
+        {/* Calendar Strip Header */}
+        <View style={[styles.headerSection, { borderBottomColor: theme.colors.border }]}>
+          <View style={styles.titleRow}>
+            <View>
+              <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
+                Agenda Orbit
+              </Text>
+              <Text style={[styles.dateSubtitle, { color: theme.colors.textSecondary }]}>
+                {selectedDateObj.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+            </View>
+
+            <PillButton
+              label="Sync Day"
+              size="sm"
+              variant="secondary"
+              icon={<Ionicons name="sync" size={14} color={theme.colors.textPrimary} />}
+              onPress={handleSyncAll}
+              disabled={tasksForSelectedDate.length === 0}
+            />
           </View>
 
-          <PillButton
-            label="Sync Day"
-            size="sm"
-            variant="secondary"
-            icon={<Ionicons name="sync" size={14} color={theme.colors.textPrimary} />}
-            onPress={handleSyncAll}
-            disabled={tasksForSelectedDate.length === 0}
-          />
+          {/* Horizontal Day Scrubber */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.scrubberContent}
+          >
+            {days.map((d) => {
+              const isSelected = selectedDayOffset === d.offset;
+              return (
+                <Pressable
+                  key={d.offset}
+                  onPress={() => handleDaySelect(d.offset)}
+                  style={[
+                    styles.dayCard,
+                    {
+                      backgroundColor: isSelected ? theme.colors.accent : theme.colors.surfaceElevated,
+                      borderColor: isSelected ? theme.colors.borderActive : theme.colors.border,
+                      borderRadius: theme.radii.lg,
+                    },
+                    d.isToday && !isSelected && { borderColor: theme.colors.borderActive, borderWidth: 1.5 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dayCardName,
+                      { color: isSelected ? theme.colors.textInverse : theme.colors.textSecondary },
+                    ]}
+                  >
+                    {d.isToday ? 'Today' : d.dayName}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.dayCardNum,
+                      { color: isSelected ? theme.colors.textInverse : theme.colors.textPrimary },
+                    ]}
+                  >
+                    {d.dateNum}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.dayCardMonth,
+                      { color: isSelected ? theme.colors.textInverse : theme.colors.textMuted },
+                    ]}
+                  >
+                    {d.month}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
 
-        {/* Horizontal Day Scrubber */}
+        {/* Sync Status Banner */}
+        {syncStatus && (
+          <View style={[styles.syncBanner, { backgroundColor: theme.colors.surfaceElevated }]}>
+            <Ionicons name="checkmark-circle" size={16} color={theme.colors.donePill} />
+            <Text style={[styles.syncBannerText, { color: theme.colors.textPrimary }]}>{syncStatus}</Text>
+          </View>
+        )}
+
+        {/* Agenda Task List for Selected Day */}
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.scrubberContent}
+          contentContainerStyle={[
+            styles.agendaContent,
+            isDesktop && styles.desktopAgendaContent,
+          ]}
+          showsVerticalScrollIndicator={false}
         >
-          {days.map((d) => {
-            const isSelected = selectedDayOffset === d.offset;
-            return (
-              <Pressable
-                key={d.offset}
-                onPress={() => handleDaySelect(d.offset)}
-                style={[
-                  styles.dayCard,
-                  {
-                    backgroundColor: isSelected ? theme.colors.accent : theme.colors.surfaceElevated,
-                    borderColor: isSelected ? theme.colors.borderActive : theme.colors.border,
-                    borderRadius: theme.radii.lg,
-                  },
-                  d.isToday && !isSelected && { borderColor: theme.colors.borderActive, borderWidth: 1.5 },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.dayCardName,
-                    { color: isSelected ? theme.colors.textInverse : theme.colors.textSecondary },
-                  ]}
-                >
-                  {d.isToday ? 'Today' : d.dayName}
-                </Text>
-                <Text
-                  style={[
-                    styles.dayCardNum,
-                    { color: isSelected ? theme.colors.textInverse : theme.colors.textPrimary },
-                  ]}
-                >
-                  {d.dateNum}
-                </Text>
-                <Text
-                  style={[
-                    styles.dayCardMonth,
-                    { color: isSelected ? theme.colors.textInverse : theme.colors.textMuted },
-                  ]}
-                >
-                  {d.month}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Sync Status Banner */}
-      {syncStatus && (
-        <View style={[styles.syncBanner, { backgroundColor: theme.colors.surfaceElevated }]}>
-          <Ionicons name="checkmark-circle" size={16} color={theme.colors.donePill} />
-          <Text style={[styles.syncBannerText, { color: theme.colors.textPrimary }]}>{syncStatus}</Text>
-        </View>
-      )}
-
-      {/* Agenda Task List for Selected Day */}
-      <ScrollView
-        contentContainerStyle={styles.agendaContent}
-        showsVerticalScrollIndicator={false}
-      >
         {tasksForSelectedDate.length === 0 ? (
           <View style={styles.emptyDayContainer}>
             <View
@@ -293,6 +299,7 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
           </View>
         )}
       </ScrollView>
+      </View>
     </View>
   );
 };
@@ -300,6 +307,18 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  innerWrap: {
+    flex: 1,
+  },
+  desktopInnerWrap: {
+    maxWidth: 1200,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  desktopAgendaContent: {
+    paddingHorizontal: 28,
+    paddingBottom: 24,
   },
   headerSection: {
     paddingTop: 16,

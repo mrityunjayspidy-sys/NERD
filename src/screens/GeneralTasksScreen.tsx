@@ -12,6 +12,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useTasks, TaskFilter, getEffectivePriority } from '../context/TaskContext';
 import { Header } from '../components/common/Header';
 import { PillButton } from '../components/common/PillButton';
+import { useResponsive } from '../hooks/useResponsive';
 import { Task } from '../types';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -30,6 +31,7 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
   onNavigateToSpace,
 }) => {
   const { theme } = useTheme();
+  const { isDesktop } = useResponsive();
   const {
     tasks,
     filteredTasks,
@@ -93,10 +95,13 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Header onOpenSettings={onOpenSettings} />
+      {!isDesktop && <Header onOpenSettings={onOpenSettings} />}
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isDesktop && styles.desktopScrollContent,
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Companion Momentum Banner */}
@@ -294,7 +299,7 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
               />
             </View>
           ) : (
-            <View style={styles.cardsStack}>
+            <View style={[styles.cardsStack, isDesktop && styles.desktopCardsStack]}>
               {filteredTasks.map((task) => {
                 const isDone = task.status === 'done';
                 const effectivePriority = getEffectivePriority(task);
@@ -313,6 +318,7 @@ export const GeneralTasksScreen: React.FC<GeneralTasksScreenProps> = ({
                     onPress={() => onSelectTask(task)}
                     style={[
                       styles.taskCard,
+                      isDesktop && styles.desktopTaskCard,
                       {
                         backgroundColor: theme.colors.surfaceElevated,
                         borderColor: isHigh && !isDone ? theme.colors.priorityHigh : theme.colors.border,
@@ -576,6 +582,21 @@ const styles = StyleSheet.create({
   },
   cardsStack: {
     gap: 10,
+  },
+  desktopScrollContent: {
+    maxWidth: 1200,
+    width: '100%',
+    alignSelf: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 24,
+  },
+  desktopCardsStack: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  desktopTaskCard: {
+    width: '49%',
   },
   taskCard: {
     flexDirection: 'row',

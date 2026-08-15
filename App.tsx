@@ -17,6 +17,8 @@ import { TaskDetailModal } from './src/screens/TaskDetailModal';
 import { TaskFormModal } from './src/screens/TaskFormModal';
 import { Task } from './src/types';
 import { NerdLogo } from './src/components/common/NerdLogo';
+import { DesktopHeader } from './src/components/common/DesktopHeader';
+import { useResponsive } from './src/hooks/useResponsive';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -26,6 +28,7 @@ const MainAppContent: React.FC = () => {
   const { theme, isDark } = useTheme();
   const { user, isLoading } = useAuth();
   const { totalUnreadCount } = useChat();
+  const { isDesktop } = useResponsive();
 
   const [activeTab, setActiveTab] = useState<TabView>('home');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -35,8 +38,35 @@ const MainAppContent: React.FC = () => {
 
   React.useEffect(() => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      document.title = 'Nerd';
+      document.title = 'Nerd ✦ Spatial Task & Chat Companion';
     }
+  }, []);
+
+  // Web Desktop Keyboard Navigation
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if typing in an input or textarea
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'textarea') return;
+
+      if (e.key === '1') {
+        setActiveTab('home');
+      } else if (e.key === '2') {
+        setActiveTab('space');
+      } else if (e.key === '3') {
+        setActiveTab('agenda');
+      } else if (e.key === '4') {
+        setActiveTab('chat');
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        handleOpenAddTask();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const handleTabSwitch = (tab: TabView) => {
@@ -96,6 +126,16 @@ const MainAppContent: React.FC = () => {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]} edges={['top', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
+      {/* Desktop Top Header Bar for Laptops / Desktop Screens */}
+      {isDesktop && (
+        <DesktopHeader
+          activeTab={activeTab}
+          onSelectTab={handleTabSwitch}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onAddTask={() => handleOpenAddTask()}
+        />
+      )}
+
       {/* Main View Switcher */}
       <View style={styles.contentContainer}>
         {activeTab === 'home' && (
@@ -122,132 +162,134 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'chat' && <ChatScreen />}
       </View>
 
-      {/* Floating Bottom Nav Pill Bar */}
-      <View style={styles.bottomNavContainer} pointerEvents="box-none">
-        <View
-          style={[
-            styles.navPill,
-            {
-              backgroundColor: theme.colors.surfaceElevated,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          {/* Tab 1: Home (General Tasks) */}
-          <Pressable
-            onPress={() => handleTabSwitch('home')}
+      {/* Floating Bottom Nav Pill Bar (Mobile & Tablet screens only) */}
+      {!isDesktop && (
+        <View style={styles.bottomNavContainer} pointerEvents="box-none">
+          <View
             style={[
-              styles.navTab,
-              activeTab === 'home' && {
-                backgroundColor: theme.colors.accent,
+              styles.navPill,
+              {
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.border,
                 borderRadius: theme.radii.full,
               },
             ]}
           >
-            <Ionicons
-              name={activeTab === 'home' ? 'checkbox' : 'checkbox-outline'}
-              size={16}
-              color={activeTab === 'home' ? theme.colors.textInverse : theme.colors.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
+            {/* Tab 1: Home (General Tasks) */}
+            <Pressable
+              onPress={() => handleTabSwitch('home')}
               style={[
-                styles.navTabText,
-                { color: activeTab === 'home' ? theme.colors.textInverse : theme.colors.textSecondary },
+                styles.navTab,
+                activeTab === 'home' && {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radii.full,
+                },
               ]}
             >
-              Tasks
-            </Text>
-          </Pressable>
+              <Ionicons
+                name={activeTab === 'home' ? 'checkbox' : 'checkbox-outline'}
+                size={16}
+                color={activeTab === 'home' ? theme.colors.textInverse : theme.colors.textSecondary}
+                style={{ marginRight: 4 }}
+              />
+              <Text
+                style={[
+                  styles.navTabText,
+                  { color: activeTab === 'home' ? theme.colors.textInverse : theme.colors.textSecondary },
+                ]}
+              >
+                Tasks
+              </Text>
+            </Pressable>
 
-          {/* Tab 2: Moving Space Canvas */}
-          <Pressable
-            onPress={() => handleTabSwitch('space')}
-            style={[
-              styles.navTab,
-              activeTab === 'space' && {
-                backgroundColor: theme.colors.accent,
-                borderRadius: theme.radii.full,
-              },
-            ]}
-          >
-            <Ionicons
-              name={activeTab === 'space' ? 'planet' : 'planet-outline'}
-              size={16}
-              color={activeTab === 'space' ? theme.colors.textInverse : theme.colors.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
+            {/* Tab 2: Moving Space Canvas */}
+            <Pressable
+              onPress={() => handleTabSwitch('space')}
               style={[
-                styles.navTabText,
-                { color: activeTab === 'space' ? theme.colors.textInverse : theme.colors.textSecondary },
+                styles.navTab,
+                activeTab === 'space' && {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radii.full,
+                },
               ]}
             >
-              Space
-            </Text>
-          </Pressable>
+              <Ionicons
+                name={activeTab === 'space' ? 'planet' : 'planet-outline'}
+                size={16}
+                color={activeTab === 'space' ? theme.colors.textInverse : theme.colors.textSecondary}
+                style={{ marginRight: 4 }}
+              />
+              <Text
+                style={[
+                  styles.navTabText,
+                  { color: activeTab === 'space' ? theme.colors.textInverse : theme.colors.textSecondary },
+                ]}
+              >
+                Space
+              </Text>
+            </Pressable>
 
-          {/* Tab 3: Agenda / Calendar */}
-          <Pressable
-            onPress={() => handleTabSwitch('agenda')}
-            style={[
-              styles.navTab,
-              activeTab === 'agenda' && {
-                backgroundColor: theme.colors.accent,
-                borderRadius: theme.radii.full,
-              },
-            ]}
-          >
-            <Ionicons
-              name={activeTab === 'agenda' ? 'calendar' : 'calendar-outline'}
-              size={16}
-              color={activeTab === 'agenda' ? theme.colors.textInverse : theme.colors.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
+            {/* Tab 3: Agenda / Calendar */}
+            <Pressable
+              onPress={() => handleTabSwitch('agenda')}
               style={[
-                styles.navTabText,
-                { color: activeTab === 'agenda' ? theme.colors.textInverse : theme.colors.textSecondary },
+                styles.navTab,
+                activeTab === 'agenda' && {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radii.full,
+                },
               ]}
             >
-              Agenda
-            </Text>
-          </Pressable>
+              <Ionicons
+                name={activeTab === 'agenda' ? 'calendar' : 'calendar-outline'}
+                size={16}
+                color={activeTab === 'agenda' ? theme.colors.textInverse : theme.colors.textSecondary}
+                style={{ marginRight: 4 }}
+              />
+              <Text
+                style={[
+                  styles.navTabText,
+                  { color: activeTab === 'agenda' ? theme.colors.textInverse : theme.colors.textSecondary },
+                ]}
+              >
+                Agenda
+              </Text>
+            </Pressable>
 
-          {/* Tab 4: Real-time Chat */}
-          <Pressable
-            onPress={() => handleTabSwitch('chat')}
-            style={[
-              styles.navTab,
-              activeTab === 'chat' && {
-                backgroundColor: theme.colors.accent,
-                borderRadius: theme.radii.full,
-              },
-            ]}
-          >
-            <Ionicons
-              name={activeTab === 'chat' ? 'chatbubbles' : 'chatbubbles-outline'}
-              size={16}
-              color={activeTab === 'chat' ? theme.colors.textInverse : theme.colors.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <Text
+            {/* Tab 4: Real-time Chat */}
+            <Pressable
+              onPress={() => handleTabSwitch('chat')}
               style={[
-                styles.navTabText,
-                { color: activeTab === 'chat' ? theme.colors.textInverse : theme.colors.textSecondary },
+                styles.navTab,
+                activeTab === 'chat' && {
+                  backgroundColor: theme.colors.accent,
+                  borderRadius: theme.radii.full,
+                },
               ]}
             >
-              Chat
-            </Text>
-            {totalUnreadCount > 0 && (
-              <View style={styles.unreadNavBadge}>
-                <Text style={styles.unreadNavText}>{totalUnreadCount}</Text>
-              </View>
-            )}
-          </Pressable>
+              <Ionicons
+                name={activeTab === 'chat' ? 'chatbubbles' : 'chatbubbles-outline'}
+                size={16}
+                color={activeTab === 'chat' ? theme.colors.textInverse : theme.colors.textSecondary}
+                style={{ marginRight: 4 }}
+              />
+              <Text
+                style={[
+                  styles.navTabText,
+                  { color: activeTab === 'chat' ? theme.colors.textInverse : theme.colors.textSecondary },
+                ]}
+              >
+                Chat
+              </Text>
+              {totalUnreadCount > 0 && (
+                <View style={styles.unreadNavBadge}>
+                  <Text style={styles.unreadNavText}>{totalUnreadCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Task Detail Modal */}
       <TaskDetailModal

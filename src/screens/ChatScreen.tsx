@@ -15,6 +15,7 @@ import {
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import { useResponsive } from '../hooks/useResponsive';
 import { ChatMessage } from '../types';
 import { PillButton } from '../components/common/PillButton';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 export const ChatScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { isDesktop } = useResponsive();
   const {
     channels,
     activeChannelId,
@@ -38,6 +40,7 @@ export const ChatScreen: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [friendCodeInput, setFriendCodeInput] = useState('');
+  const [channelSearchQuery, setChannelSearchQuery] = useState('');
   const [copiedCodeToast, setCopiedCodeToast] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
@@ -118,6 +121,10 @@ export const ChatScreen: React.FC = () => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const filteredChannels = channels.filter((c) =>
+    c.name.toLowerCase().includes(channelSearchQuery.toLowerCase())
+  );
+
   const renderMessageItem = ({ item }: { item: ChatMessage }) => {
     const isMe = user ? item.sender_id === user.id : false;
 
@@ -146,7 +153,13 @@ export const ChatScreen: React.FC = () => {
             styles.messageBubble,
             isMe
               ? [styles.bubbleMe, { backgroundColor: theme.colors.accent }]
-              : [styles.bubbleOther, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }],
+              : [
+                  styles.bubbleOther,
+                  {
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                  },
+                ],
             { borderRadius: theme.radii.lg },
           ]}
         >
@@ -200,93 +213,28 @@ export const ChatScreen: React.FC = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
-      {/* Top Header Card */}
-      <View style={[styles.topHeader, { borderBottomColor: theme.colors.border }]}>
-        <View style={styles.headerTitleRow}>
-          <View>
-            <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
-              Nerd Chat
-            </Text>
-            <Text style={[styles.screenSubtitle, { color: theme.colors.textMuted }]}>
-              Real-time multi-user & direct channels
-            </Text>
-          </View>
-
-          {/* User's Unique Code Chip */}
-          <Pressable
-            onPress={handleCopyMyCode}
+      <View
+        style={[
+          styles.mainLayout,
+          isDesktop && styles.desktopLayout,
+        ]}
+      >
+        {/* Desktop Left Sidebar: Channels & Contacts */}
+        {isDesktop && (
+          <View
             style={[
-              styles.myCodeChip,
+              styles.desktopSidebar,
               {
-                backgroundColor: theme.colors.surfaceElevated,
-                borderColor: theme.colors.borderActive,
-                borderRadius: theme.radii.full,
+                backgroundColor: theme.colors.surface,
+                borderRightColor: theme.colors.border,
               },
             ]}
           >
-            <Ionicons name="key-outline" size={13} color={theme.colors.textPrimary} />
-            <Text style={[styles.myCodeText, { color: theme.colors.textPrimary }]}>
-              {myCode}
-            </Text>
-            <Ionicons
-              name={copiedCodeToast ? 'checkmark-circle' : 'copy-outline'}
-              size={13}
-              color={copiedCodeToast ? theme.colors.donePill : theme.colors.textMuted}
-            />
-          </Pressable>
-        </View>
-
-        {copiedCodeToast && (
-          <View style={[styles.toastBanner, { backgroundColor: 'rgba(78, 159, 118, 0.15)' }]}>
-            <Text style={[styles.toastText, { color: theme.colors.donePill }]}>
-              Your Unique Code ({myCode}) copied to clipboard!
-            </Text>
-          </View>
-        )}
-
-        {/* Channel Switcher Rail */}
-        <View style={styles.channelScrollRow}>
-          <FlatList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={channels}
-            keyExtractor={(c) => c.id}
-            contentContainerStyle={styles.channelsList}
-            renderItem={({ item: c }) => {
-              const isActive = c.id === activeChannelId;
-              return (
-                <Pressable
-                  onPress={() => setActiveChannelId(c.id)}
-                  style={[
-                    styles.channelPill,
-                    {
-                      backgroundColor: isActive ? theme.colors.accent : theme.colors.surfaceElevated,
-                      borderColor: isActive ? theme.colors.borderActive : theme.colors.border,
-                      borderRadius: theme.radii.full,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.channelPillText,
-                      { color: isActive ? theme.colors.textInverse : theme.colors.textPrimary },
-                    ]}
-                  >
-                    {c.name}
-                  </Text>
-                  {c.unread_count && c.unread_count > 0 ? (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadBadgeText}>{c.unread_count}</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            }}
-            ListFooterComponent={
-              <Pressable
-                onPress={() => setIsConnectModalOpen(true)}
+            {/* Sidebar Search & Connect */}
+            <View style={styles.sidebarHeader}>
+              <View
                 style={[
-                  styles.addDirectPill,
+                  styles.sidebarSearchWrap,
                   {
                     backgroundColor: theme.colors.surfaceInput,
                     borderColor: theme.colors.border,
@@ -294,126 +242,395 @@ export const ChatScreen: React.FC = () => {
                   },
                 ]}
               >
-                <Ionicons name="person-add-outline" size={13} color={theme.colors.textPrimary} />
-                <Text style={[styles.addDirectPillText, { color: theme.colors.textPrimary }]}>
-                  + Connect by Code
+                <Ionicons name="search-outline" size={14} color={theme.colors.textMuted} />
+                <TextInput
+                  style={[styles.sidebarSearchInput, { color: theme.colors.textPrimary }]}
+                  placeholder="Search channels..."
+                  placeholderTextColor={theme.colors.textMuted}
+                  value={channelSearchQuery}
+                  onChangeText={setChannelSearchQuery}
+                />
+              </View>
+
+              <Pressable
+                onPress={() => setIsConnectModalOpen(true)}
+                style={[
+                  styles.sidebarConnectBtn,
+                  {
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                    borderRadius: theme.radii.md,
+                  },
+                ]}
+              >
+                <Ionicons name="person-add-outline" size={14} color={theme.colors.textPrimary} />
+                <Text style={[styles.sidebarConnectBtnText, { color: theme.colors.textPrimary }]}>
+                  Connect by Code
                 </Text>
               </Pressable>
-            }
-          />
-        </View>
-      </View>
+            </View>
 
-      {/* Messages List Area */}
-      <View style={styles.messagesContainer}>
-        {activeMessages.length === 0 ? (
-          <View style={styles.emptyMessagesWrap}>
-            <Ionicons name="chatbubbles-outline" size={42} color={theme.colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>
-              {activeChannel.is_direct ? 'Private Direct Channel' : 'Welcome to Nerd Community Hub'}
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
-              {activeChannel.is_direct
-                ? `You are connected with ${activeChannel.name}. Send a hello!`
-                : 'Say hello to all fellow Nerd explorers in real-time!'}
-            </Text>
+            {/* Channels List */}
+            <FlatList
+              data={filteredChannels}
+              keyExtractor={(c) => c.id}
+              contentContainerStyle={styles.sidebarChannelsList}
+              renderItem={({ item: c }) => {
+                const isActive = c.id === activeChannelId;
+                return (
+                  <Pressable
+                    onPress={() => setActiveChannelId(c.id)}
+                    style={[
+                      styles.sidebarChannelItem,
+                      {
+                        backgroundColor: isActive
+                          ? theme.colors.accent
+                          : 'transparent',
+                        borderRadius: theme.radii.md,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.channelIconCircle,
+                        {
+                          backgroundColor: isActive
+                            ? 'rgba(255, 255, 255, 0.2)'
+                            : theme.colors.surfaceInput,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={c.is_direct ? 'person-outline' : 'globe-outline'}
+                        size={14}
+                        color={isActive ? theme.colors.textInverse : theme.colors.textPrimary}
+                      />
+                    </View>
+                    <View style={styles.channelItemInfo}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.channelItemName,
+                          {
+                            color: isActive
+                              ? theme.colors.textInverse
+                              : theme.colors.textPrimary,
+                          },
+                        ]}
+                      >
+                        {c.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.channelItemSub,
+                          {
+                            color: isActive
+                              ? 'rgba(255, 255, 255, 0.75)'
+                              : theme.colors.textMuted,
+                          },
+                        ]}
+                      >
+                        {c.is_direct ? `Code: ${c.other_user_code}` : 'Public Channel'}
+                      </Text>
+                    </View>
+                    {c.unread_count && c.unread_count > 0 ? (
+                      <View style={styles.sidebarUnreadBadge}>
+                        <Text style={styles.sidebarUnreadText}>{c.unread_count}</Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              }}
+            />
           </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={activeMessages}
-            keyExtractor={(m) => m.id}
-            renderItem={renderMessageItem}
-            contentContainerStyle={styles.messagesListContent}
-            showsVerticalScrollIndicator={false}
-          />
         )}
-      </View>
 
-      {/* Image Preview Banner */}
-      {selectedImage && (
-        <View
-          style={[
-            styles.imagePreviewBanner,
-            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border },
-          ]}
-        >
-          <Image source={{ uri: selectedImage }} style={styles.attachedThumb} />
-          <Text style={[styles.imagePreviewText, { color: theme.colors.textPrimary }]}>
-            Photo attached
-          </Text>
-          <Pressable onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
-            <Ionicons name="close-circle" size={20} color={theme.colors.priorityHigh} />
-          </Pressable>
+        {/* Right Conversation Deck (Desktop) / Main View (Mobile) */}
+        <View style={styles.chatStreamContainer}>
+          {/* Top Mobile Channel Bar */}
+          {!isDesktop && (
+            <View style={[styles.topHeader, { borderBottomColor: theme.colors.border }]}>
+              <View style={styles.headerTitleRow}>
+                <View>
+                  <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
+                    Nerd Chat
+                  </Text>
+                  <Text style={[styles.screenSubtitle, { color: theme.colors.textMuted }]}>
+                    Real-time multi-user & direct channels
+                  </Text>
+                </View>
+
+                {/* User's Unique Code Chip */}
+                <Pressable
+                  onPress={handleCopyMyCode}
+                  style={[
+                    styles.myCodeChip,
+                    {
+                      backgroundColor: theme.colors.surfaceElevated,
+                      borderColor: theme.colors.borderActive,
+                      borderRadius: theme.radii.full,
+                    },
+                  ]}
+                >
+                  <Ionicons name="key-outline" size={13} color={theme.colors.textPrimary} />
+                  <Text style={[styles.myCodeText, { color: theme.colors.textPrimary }]}>
+                    {myCode}
+                  </Text>
+                  <Ionicons
+                    name={copiedCodeToast ? 'checkmark-circle' : 'copy-outline'}
+                    size={13}
+                    color={copiedCodeToast ? theme.colors.donePill : theme.colors.textMuted}
+                  />
+                </Pressable>
+              </View>
+
+              {copiedCodeToast && (
+                <View style={[styles.toastBanner, { backgroundColor: 'rgba(78, 159, 118, 0.15)' }]}>
+                  <Text style={[styles.toastText, { color: theme.colors.donePill }]}>
+                    Your Unique Code ({myCode}) copied to clipboard!
+                  </Text>
+                </View>
+              )}
+
+              {/* Channel Switcher Rail */}
+              <View style={styles.channelScrollRow}>
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={channels}
+                  keyExtractor={(c) => c.id}
+                  contentContainerStyle={styles.channelsList}
+                  renderItem={({ item: c }) => {
+                    const isActive = c.id === activeChannelId;
+                    return (
+                      <Pressable
+                        onPress={() => setActiveChannelId(c.id)}
+                        style={[
+                          styles.channelPill,
+                          {
+                            backgroundColor: isActive
+                              ? theme.colors.accent
+                              : theme.colors.surfaceElevated,
+                            borderColor: isActive
+                              ? theme.colors.borderActive
+                              : theme.colors.border,
+                            borderRadius: theme.radii.full,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.channelPillText,
+                            {
+                              color: isActive
+                                ? theme.colors.textInverse
+                                : theme.colors.textPrimary,
+                            },
+                          ]}
+                        >
+                          {c.name}
+                        </Text>
+                        {c.unread_count && c.unread_count > 0 ? (
+                          <View style={styles.unreadBadge}>
+                            <Text style={styles.unreadBadgeText}>{c.unread_count}</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                    );
+                  }}
+                  ListFooterComponent={
+                    <Pressable
+                      onPress={() => setIsConnectModalOpen(true)}
+                      style={[
+                        styles.addDirectPill,
+                        {
+                          backgroundColor: theme.colors.surfaceInput,
+                          borderColor: theme.colors.border,
+                          borderRadius: theme.radii.full,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="person-add-outline"
+                        size={13}
+                        color={theme.colors.textPrimary}
+                      />
+                      <Text
+                        style={[
+                          styles.addDirectPillText,
+                          { color: theme.colors.textPrimary },
+                        ]}
+                      >
+                        + Connect by Code
+                      </Text>
+                    </Pressable>
+                  }
+                />
+              </View>
+            </View>
+          )}
+
+          {/* Desktop Active Channel Title Bar */}
+          {isDesktop && (
+            <View
+              style={[
+                styles.desktopChannelBar,
+                {
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderBottomColor: theme.colors.border,
+                },
+              ]}
+            >
+              <View style={styles.desktopChannelInfo}>
+                <Ionicons
+                  name={activeChannel.is_direct ? 'person-circle-outline' : 'globe-outline'}
+                  size={20}
+                  color={theme.colors.accent}
+                  style={{ marginRight: 8 }}
+                />
+                <View>
+                  <Text style={[styles.desktopChannelTitle, { color: theme.colors.textPrimary }]}>
+                    {activeChannel.name}
+                  </Text>
+                  <Text style={[styles.desktopChannelSub, { color: theme.colors.textMuted }]}>
+                    {activeChannel.is_direct
+                      ? `Private Channel • Friend Code: ${activeChannel.other_user_code}`
+                      : 'Nerd Real-Time Community Hub'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.onlineBadge}>
+                <View style={styles.onlineDot} />
+                <Text style={[styles.onlineText, { color: theme.colors.donePill }]}>Connected</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Messages List Area */}
+          <View style={styles.messagesContainer}>
+            {activeMessages.length === 0 ? (
+              <View style={styles.emptyMessagesWrap}>
+                <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textMuted} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>
+                  {activeChannel.is_direct ? 'Private Direct Channel' : 'Welcome to Nerd Community Hub'}
+                </Text>
+                <Text style={[styles.emptySubtitle, { color: theme.colors.textMuted }]}>
+                  {activeChannel.is_direct
+                    ? `You are connected with ${activeChannel.name}. Send a message!`
+                    : 'Say hello to all fellow Nerd explorers in real-time!'}
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={activeMessages}
+                keyExtractor={(m) => m.id}
+                renderItem={renderMessageItem}
+                contentContainerStyle={[
+                  styles.messagesListContent,
+                  isDesktop && styles.desktopMessagesContent,
+                ]}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
+          </View>
+
+          {/* Image Preview Banner */}
+          {selectedImage && (
+            <View
+              style={[
+                styles.imagePreviewBanner,
+                {
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <Image source={{ uri: selectedImage }} style={styles.attachedThumb} />
+              <Text style={[styles.imagePreviewText, { color: theme.colors.textPrimary }]}>
+                Photo attached
+              </Text>
+              <Pressable onPress={() => setSelectedImage(null)} style={styles.removeImageBtn}>
+                <Ionicons name="close-circle" size={20} color={theme.colors.priorityHigh} />
+              </Pressable>
+            </View>
+          )}
+
+          {/* Message Input Bar */}
+          <View
+            style={[
+              styles.inputContainer,
+              isDesktop && styles.desktopInputContainer,
+              {
+                backgroundColor: theme.colors.surface,
+                borderTopColor: theme.colors.border,
+              },
+            ]}
+          >
+            <Pressable
+              onPress={handlePickImage}
+              style={[
+                styles.attachBtn,
+                {
+                  backgroundColor: theme.colors.surfaceInput,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <Ionicons name="camera-outline" size={20} color={theme.colors.textSecondary} />
+            </Pressable>
+
+            <View
+              style={[
+                styles.textInputWrapper,
+                {
+                  backgroundColor: theme.colors.surfaceInput,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.textInputField, { color: theme.colors.textPrimary }]}
+                value={inputContent}
+                onChangeText={setInputContent}
+                placeholder={`Message ${activeChannel.name}...`}
+                placeholderTextColor={theme.colors.textMuted}
+                multiline={false}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+              />
+            </View>
+
+            <Pressable
+              onPress={handleSend}
+              disabled={!inputContent.trim() && !selectedImage}
+              style={[
+                styles.sendBtn,
+                {
+                  backgroundColor:
+                    inputContent.trim() || selectedImage
+                      ? theme.colors.accent
+                      : theme.colors.surfaceInput,
+                  borderRadius: theme.radii.full,
+                },
+              ]}
+            >
+              <Ionicons
+                name="arrow-up"
+                size={20}
+                color={
+                  inputContent.trim() || selectedImage
+                    ? theme.colors.textInverse
+                    : theme.colors.textMuted
+                }
+              />
+            </Pressable>
+          </View>
         </View>
-      )}
-
-      {/* Message Input Bar */}
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            backgroundColor: theme.colors.surface,
-            borderTopColor: theme.colors.border,
-          },
-        ]}
-      >
-        <Pressable
-          onPress={handlePickImage}
-          style={[
-            styles.attachBtn,
-            {
-              backgroundColor: theme.colors.surfaceInput,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <Ionicons name="camera-outline" size={20} color={theme.colors.textSecondary} />
-        </Pressable>
-
-        <View
-          style={[
-            styles.textInputWrapper,
-            {
-              backgroundColor: theme.colors.surfaceInput,
-              borderColor: theme.colors.border,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <TextInput
-            style={[styles.textInputField, { color: theme.colors.textPrimary }]}
-            value={inputContent}
-            onChangeText={setInputContent}
-            placeholder={`Message ${activeChannel.name}...`}
-            placeholderTextColor={theme.colors.textMuted}
-            multiline={false}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-        </View>
-
-        <Pressable
-          onPress={handleSend}
-          disabled={!inputContent.trim() && !selectedImage}
-          style={[
-            styles.sendBtn,
-            {
-              backgroundColor:
-                inputContent.trim() || selectedImage ? theme.colors.accent : theme.colors.surfaceInput,
-              borderRadius: theme.radii.full,
-            },
-          ]}
-        >
-          <Ionicons
-            name="arrow-up"
-            size={20}
-            color={
-              inputContent.trim() || selectedImage ? theme.colors.textInverse : theme.colors.textMuted
-            }
-          />
-        </Pressable>
       </View>
 
       {/* Connect with Friend Modal */}
@@ -489,6 +706,129 @@ export const ChatScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  mainLayout: {
+    flex: 1,
+  },
+  desktopLayout: {
+    flexDirection: 'row',
+    maxWidth: 1300,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  desktopSidebar: {
+    width: 300,
+    borderRightWidth: 1,
+    paddingTop: 16,
+  },
+  sidebarHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    gap: 10,
+  },
+  sidebarSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    height: 38,
+    borderWidth: 1,
+    gap: 8,
+  },
+  sidebarSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    borderWidth: 0,
+  },
+  sidebarConnectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderWidth: 1,
+    gap: 6,
+  },
+  sidebarConnectBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sidebarChannelsList: {
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  sidebarChannelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  channelIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  channelItemInfo: {
+    flex: 1,
+  },
+  channelItemName: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  channelItemSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  sidebarUnreadBadge: {
+    backgroundColor: '#D9534F',
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  sidebarUnreadText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  chatStreamContainer: {
+    flex: 1,
+  },
+  desktopChannelBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  desktopChannelInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  desktopChannelTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  desktopChannelSub: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  onlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#4E9F76',
+  },
+  onlineText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   topHeader: {
     paddingHorizontal: 16,
@@ -602,6 +942,10 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     gap: 12,
   },
+  desktopMessagesContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -624,7 +968,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   messageBubble: {
-    maxWidth: '78%',
+    maxWidth: '72%',
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
@@ -639,7 +983,7 @@ const styles = StyleSheet.create({
   },
   bubbleImageWrapper: {
     width: '100%',
-    height: 160,
+    height: 180,
     borderRadius: 10,
     overflow: 'hidden',
     marginBottom: 6,
@@ -691,9 +1035,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingTop: 8,
-    paddingBottom: 90, // Leave room above the floating bottom navigation bar
+    paddingBottom: 90, // Mobile bottom spacing above floating pill
     borderTopWidth: 1,
     gap: 8,
+  },
+  desktopInputContainer: {
+    paddingBottom: 16, // Desktop clean bottom padding
+    paddingHorizontal: 20,
   },
   attachBtn: {
     width: 42,

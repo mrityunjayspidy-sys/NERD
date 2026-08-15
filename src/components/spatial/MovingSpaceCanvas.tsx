@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { StyleSheet, View, Dimensions, Platform } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -108,6 +108,26 @@ export const MovingSpaceCanvas: React.FC<MovingSpaceCanvasProps> = ({
     doubleTapGesture,
     Gesture.Simultaneous(panGesture, pinchGesture)
   );
+
+  // Web Desktop Mouse Wheel Zoom
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    const handleWheel = (e: WheelEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'textarea') return;
+
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      const nextScale = Math.min(Math.max(scale.value * zoomFactor, MIN_ZOOM), MAX_ZOOM);
+      scale.value = nextScale;
+      savedScale.value = nextScale;
+      setCurrentZoomState(nextScale);
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
 
   const resetView = () => {
     translateX.value = withSpring(0, { damping: 15 });

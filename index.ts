@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import { Platform } from 'react-native';
 
 // Web runtime global focus outline reset

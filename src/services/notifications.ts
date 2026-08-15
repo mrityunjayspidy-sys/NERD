@@ -5,13 +5,15 @@ let Notifications: typeof import('expo-notifications') | null = null;
 if (Platform.OS !== 'web') {
   try {
     Notifications = require('expo-notifications');
-    Notifications?.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-      }),
-    });
+    if (Notifications && typeof Notifications.setNotificationHandler === 'function') {
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        }),
+      });
+    }
   } catch (e) {
     console.warn('expo-notifications not available:', e);
   }
